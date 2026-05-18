@@ -1,0 +1,82 @@
+# CI — runs on every PR and on pushes to main.
+# Lint + tests for both backend and frontend.
+#
+# What you (the DevOps engineer) should extend:
+#   - add eslint configs and a lint step that fails on warnings
+#   - cache prisma client between jobs
+#   - add an e2e job that boots compose and hits /api/health/ready
+#   - upload coverage to Codecov / sonar
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend (test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tracker
+          POSTGRES_PASSWORD: tracker
+          POSTGRES_DB: tracker_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tracker -d tracker_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://tracker:tracker@localhost:5432/tracker_test?schema=public
+      JWT_ACCESS_SECRET: ci_access
+      JWT_REFRESH_SECRET: ci_refresh
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npm test -- --runInBand
+      - run: npm run build
+
+  frontend:
+    name: frontend (test + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
