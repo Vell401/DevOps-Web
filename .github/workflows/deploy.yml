@@ -7,8 +7,11 @@
 #   VPS_SSH_KEY    — private key (PEM) authorised on the VPS
 #   VPS_DEPLOY_DIR — absolute path on the VPS where docker-compose.prod.yml + .env live
 #
-# Required repository variables:
-#   DOCKERHUB_USERNAME — same value as the secret (used as image namespace)
+# Notes on triggers:
+#   - main pushes auto-deploy the freshly-built `latest`.
+#   - tag pushes (v*) intentionally do NOT auto-deploy. Trigger manually via
+#     workflow_dispatch with image_tag=v1.2.3 to roll out a tagged release.
+#     This gives you a manual gate for production-bound releases.
 name: Deploy
 
 on:
@@ -22,6 +25,9 @@ on:
         description: "Image tag to deploy (e.g. latest, sha-abc1234, v1.2.3)"
         default: latest
         required: true
+
+permissions:
+  contents: read
 
 concurrency:
   group: deploy-production
@@ -48,7 +54,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: IMAGE_TAG
+          script_stop: true
           script: |
             set -euo pipefail
             cd "${{ secrets.VPS_DEPLOY_DIR }}"

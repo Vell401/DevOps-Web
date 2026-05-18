@@ -51,10 +51,17 @@ The application code is provided as a **starting point** — your job is to hard
 ```bash
 cp .env.example .env
 # Optional: cp backend/.env.example backend/.env (only needed when running backend outside Docker)
-docker compose up -d --build
 
-# First run: apply migrations + seed sample data
-docker compose exec backend npx prisma migrate deploy
+# --- ONE-TIME: generate the initial Prisma migration ---
+# prisma/migrations/ is not committed — every fork bootstraps its own.
+# This step uses the dev DB to derive the migration SQL from prisma/schema.prisma.
+docker compose up -d postgres
+docker compose run --rm backend npx prisma migrate dev --name init --skip-seed
+# Now commit the generated backend/prisma/migrations/ directory.
+
+# --- Day-to-day ---
+docker compose up -d --build
+docker compose exec backend npx prisma migrate deploy   # idempotent
 docker compose exec backend npm run prisma:seed
 ```
 
@@ -85,8 +92,8 @@ All vars are declared in `.env.example` (root, used by Compose) and `backend/.en
 | `THROTTLE_TTL` / `THROTTLE_LIMIT` | backend | 60 / 120 | Rate limit window / quota |
 | `CORS_ORIGINS` | backend | http://localhost:5173 | Comma-separated allowed origins |
 | `LOG_LEVEL` | backend | info | Pino log level |
-| `VITE_API_URL` | frontend build arg | http://localhost:3000/api | Baked into SPA bundle |
-| `DOCKERHUB_USER` | prod compose | — | Docker Hub namespace for images |
+| `VITE_API_URL` | frontend build arg | http://localhost:3000/api | Baked into SPA bundle (dev compose only). For prod, set as GitHub repo variable so `release.yml` injects it at build time. |
+| `DOCKERHUB_USERNAME` | prod compose | — | Docker Hub namespace for images (same value as the GitHub secret). |
 | `IMAGE_TAG` | prod compose | latest | Image tag rolled out |
 
 Generate prod secrets with:
@@ -103,12 +110,13 @@ Prisma is the source of truth. Schema lives at `backend/prisma/schema.prisma`.
 
 | Action | Command |
 |---|---|
+| Bootstrap initial migration (one-time, per fork) | `docker compose run --rm backend npx prisma migrate dev --name init --skip-seed` |
 | Create a new migration (dev) | `make migrate-dev` |
 | Apply pending migrations (any env) | `make migrate` |
 | Run the seed | `make seed` |
 | Open `psql` | `make shell-db` |
 
-Migrations are applied automatically by the deploy workflow **before** rolling out new app containers.
+Commit the generated `backend/prisma/migrations/` directory to git. Migrations are applied automatically by the deploy workflow **before** rolling out new app containers.
 
 ---
 

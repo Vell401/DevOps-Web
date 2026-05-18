@@ -11,7 +11,12 @@ describe('AuthService', () => {
 
   const prismaMock = {
     user: { findUnique: jest.fn(), create: jest.fn() },
-    refreshToken: { create: jest.fn(), findUnique: jest.fn(), delete: jest.fn() },
+    refreshToken: {
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      delete: jest.fn(),
+      deleteMany: jest.fn(),
+    },
   };
 
   const cfgMock: Partial<AppConfigService> = {

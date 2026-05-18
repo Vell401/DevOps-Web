@@ -32,13 +32,15 @@ services:
       retries: 5
 
   backend:
-    image: ${DOCKERHUB_USER}/tracker-backend:${IMAGE_TAG:-latest}
+    image: ${DOCKERHUB_USERNAME}/tracker-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       NODE_ENV: production
       PORT: 3000
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      CORS_ORIGINS: ${CORS_ORIGINS}
+      # CORS must be set explicitly in prod .env (comma-separated allowed origins).
+      # Empty value would block every browser request — fail fast in compose instead.
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS must be set in .env}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -57,7 +59,7 @@ services:
       - "3000"
 
   frontend:
-    image: ${DOCKERHUB_USER}/tracker-frontend:${IMAGE_TAG:-latest}
+    image: ${DOCKERHUB_USERNAME}/tracker-frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       - backend

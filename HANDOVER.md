@@ -39,6 +39,13 @@
 ### 2. Поднять локально (sanity check, ещё до VPS)
 ```bash
 cp .env.example .env
+
+# ОДИН РАЗ: сгенерить начальную миграцию (папка prisma/migrations/ не в репо).
+docker compose up -d postgres
+docker compose run --rm backend npx prisma migrate dev --name init --skip-seed
+# Закоммитить созданный backend/prisma/migrations/.
+
+# Дальше штатно:
 docker compose up -d --build
 docker compose exec backend npx prisma migrate deploy
 docker compose exec backend npm run prisma:seed
@@ -193,3 +200,44 @@ git pull
 ```
 
 Маленький совет: **не пуш в `main` напрямую**, как только репо ожил — делай ветки и PR. Заодно `ci.yml` отработает на PR и ты увидишь, проходят ли тесты, до того как сольёшь в `main` и оно поедет на прод.
+
+
+
+
+
+
+
+  Что починил
+
+  HIGH — безопасность и логика                                                                                            - backend/src/auth/auth.service.ts:67-82 — refresh теперь атомарный (deleteMany одним запросом), при повторном
+  использовании токена сносит всё семейство пользователя                                                                  - backend/src/auth/auth.controller.ts — на /register, /login, /refresh отдельный жёсткий throttle (10/мин), чтобы
+  общий 120/мин не помогал брутфорсу
+  - frontend/src/api/client.ts — interceptor больше не блокирует refresh на /auth/me (раньше любой /auth/* исключался —
+  токен переставал обновляться)
+  - backend/src/tasks/tasks.service.ts — добавлен assertAssigneeExists, в create/update явная деструктуризация полей
+  вместо ...dto (нельзя протащить лишние ключи в Prisma)
+
+  MED — инфра и конфиги
+  - docker-compose.yml — postgres/redis забинжены на 127.0.0.1 (а не на 0.0.0.0)
+  - docker-compose.prod.yml — CORS_ORIGINS:?... (fail-fast если не задано), переименовал DOCKERHUB_USER →
+  DOCKERHUB_USERNAME чтобы совпадало с GitHub secret
+  - .env.example — то же переименование + комментарий что VITE_API_URL это билдовый аргумент только для dev compose
+  - .github/workflows/ci.yml и deploy.yml — permissions: contents: read, script_stop: true, убран бесполезный envs:
+  IMAGE_TAG
+  - Makefile — SHELL := /usr/bin/env bash (на Windows через Git Bash таргеты работали через раз)
+  - Удалил backend/docker-entrypoint.sh (не COPY'ился в образ, миграции и так гонит deploy.yml)
+  - backend/src/auth/auth.service.spec.ts — добавлен мок refreshToken.deleteMany под новый auth.service
+  - README + HANDOVER — добавлен шаг с генерацией начальной миграции
+
+  Что осталось руками сделать тебе
+
+  Один обязательный шаг перед первым пушем — сгенерить начальную миграцию (папки backend/prisma/migrations/ в репо нет,
+  и без неё prisma migrate deploy в CI/проде упадёт):
+
+  cp .env.example .env
+  docker compose up -d postgres
+  docker compose run --rm backend npx prisma migrate dev --name init --skip-seed
+  # затем закоммитить созданный backend/prisma/migrations/
+
+  Дальше всё по HANDOVER.md: git init → пуш на GitHub → Docker Hub токен → секреты в GitHub → bootstrap VPS. Проект
+  теперь в состоянии «можно катить и не стыдно показывать на собесе как стартовую точку».

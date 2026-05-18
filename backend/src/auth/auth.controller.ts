@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -8,6 +9,8 @@ import { RefreshDto } from './dto/refresh.dto';
 import { JwtAccessGuard } from './guards/jwt-access.guard';
 import { CurrentUser, AuthenticatedUser } from './decorators/current-user.decorator';
 import { UsersService } from '../users/users.service';
+
+const AUTH_THROTTLE = { default: { ttl: 60_000, limit: 10 } };
 
 @ApiTags('auth')
 @Controller('auth')
@@ -18,17 +21,20 @@ export class AuthController {
   ) {}
 
   @Post('register')
+  @Throttle(AUTH_THROTTLE)
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
   }
 
   @Post('login')
+  @Throttle(AUTH_THROTTLE)
   @HttpCode(200)
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto);
   }
 
   @Post('refresh')
+  @Throttle(AUTH_THROTTLE)
   @HttpCode(200)
   refresh(@Body() dto: RefreshDto) {
     return this.auth.refresh(dto.refreshToken);

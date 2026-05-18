@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -15,6 +16,15 @@ export class TasksService {
     private readonly prisma: PrismaService,
     private readonly projects: ProjectsService,
   ) {}
+
+  private async assertAssigneeExists(assigneeId: string | undefined): Promise<void> {
+    if (!assigneeId) return;
+    const exists = await this.prisma.user.findUnique({
+      where: { id: assigneeId },
+      select: { id: true },
+    });
+    if (!exists) throw new BadRequestException('Assignee not found');
+  }
 
   async listByProject(projectId: string, userId: string, query: QueryTasksDto) {
     await this.projects.getOwned(projectId, userId);
@@ -45,9 +55,14 @@ export class TasksService {
 
   async create(projectId: string, userId: string, dto: CreateTaskDto) {
     await this.projects.getOwned(projectId, userId);
+    await this.assertAssigneeExists(dto.assigneeId);
     return this.prisma.task.create({
       data: {
-        ...dto,
+        title: dto.title,
+        description: dto.description,
+        status: dto.status,
+        priority: dto.priority,
+        assigneeId: dto.assigneeId,
         dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
         projectId,
       },
@@ -56,10 +71,15 @@ export class TasksService {
 
   async update(id: string, userId: string, dto: UpdateTaskDto) {
     await this.get(id, userId);
+    await this.assertAssigneeExists(dto.assigneeId);
     return this.prisma.task.update({
       where: { id },
       data: {
-        ...dto,
+        title: dto.title,
+        description: dto.description,
+        status: dto.status,
+        priority: dto.priority,
+        assigneeId: dto.assigneeId,
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
       },
     });

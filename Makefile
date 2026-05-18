@@ -1,4 +1,5 @@
-# Convenience targets. Tested with GNU make on Linux/macOS and WSL.
+# Convenience targets. On Windows, run from Git Bash (not cmd.exe).
+SHELL := /usr/bin/env bash
 
 COMPOSE       ?= docker compose
 COMPOSE_PROD  ?= docker compose -f docker-compose.prod.yml --env-file .env

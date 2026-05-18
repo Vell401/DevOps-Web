@@ -65,13 +65,19 @@ export class AuthService {
     }
 
     const tokenHash = this.hashToken(refreshToken);
-    const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
-    if (!stored || stored.userId !== payload.sub || stored.expiresAt < new Date()) {
+
+    // Atomic rotate: a single deleteMany consumes the token. If 0 rows are deleted,
+    // either someone already used it (replay) or it never existed. In either case
+    // wipe the user's whole refresh family — safest response to a possible theft.
+    const deleted = await this.prisma.refreshToken.deleteMany({
+      where: { tokenHash, userId: payload.sub, expiresAt: { gt: new Date() } },
+    });
+
+    if (deleted.count === 0) {
+      await this.prisma.refreshToken.deleteMany({ where: { userId: payload.sub } });
       throw new UnauthorizedException('Refresh token revoked or expired');
     }
 
-    // Rotate: delete old, issue new
-    await this.prisma.refreshToken.delete({ where: { id: stored.id } });
     return this.issueTokens(payload.sub, payload.email);
   }
 

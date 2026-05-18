@@ -40,11 +40,17 @@ api.interceptors.response.use(
   (r) => r,
   async (error: AxiosError) => {
     const original = error.config as AxiosRequestConfig & { _retry?: boolean };
-    if (
-      error.response?.status === 401 &&
-      !original._retry &&
-      !original.url?.includes('/auth/')
-    ) {
+    // Refresh only when an *authenticated* call returned 401 — never on the refresh
+    // endpoint itself (would loop) and not on login/register (those failures mean
+    // bad credentials, not stale tokens).
+    const url = original.url ?? '';
+    const isAuthBootstrap =
+      url.endsWith('/auth/login') ||
+      url.endsWith('/auth/register') ||
+      url.endsWith('/auth/refresh') ||
+      url.endsWith('/auth/logout');
+
+    if (error.response?.status === 401 && !original._retry && !isAuthBootstrap) {
       original._retry = true;
       try {
         refreshPromise ??= refreshTokens().finally(() => {
