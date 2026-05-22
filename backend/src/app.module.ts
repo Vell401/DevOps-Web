@@ -24,10 +24,7 @@ import { CommentsModule } from './comments/comments.module';
       useFactory: (cfg: AppConfigService) => ({
         pinoHttp: {
           level: cfg.logLevel,
-          transport:
-            cfg.nodeEnv === 'development'
-              ? { target: 'pino-pretty', options: { singleLine: true } }
-              : undefined,
+          transport: undefined, // Отключено для стабильности в Docker
           redact: ['req.headers.authorization', 'req.headers.cookie'],
         },
       }),
