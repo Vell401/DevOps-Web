@@ -1,38 +1,7 @@
-```
-# Dependencies
-node_modules/
-
-# Environment
-.env
-.env.local
-.env.*
-
-# Logs
-*.log
-
-# Temporary files
-*.tmp
-*.swp
-
-# Editor/IDE
-.vscode/
-.idea/
-
-# Build artifacts
-dist/
-build/
-target/
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.py~
-.Python
-venv/
-.venv/
-.env
-.env.local
-.env.*
-```
+backend/dist/
+backend/build/
+backend/node_modules/
+backend/.env
+backend/*.log
+backend/.vscode/
+backend/.idea/
