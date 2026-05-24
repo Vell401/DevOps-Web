@@ -5,3 +5,4 @@ backend/.env
 backend/*.log
 backend/.vscode/
 backend/.idea/
+node_modules/
