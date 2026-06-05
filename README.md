@@ -1,262 +1,222 @@
-# Task Tracker — DevOps pet-project
+# Task Tracker — техническое описание
 
-A small REST + SPA Task Tracker (think mini-Jira) intentionally shaped to give a DevOps engineer a realistic surface area to practice on: multi-service compose, migrations, JWT auth, health probes, structured logs, Docker Hub releases, and an SSH-based deploy to a Linux VPS.
+Небольшое REST + SPA приложение «таск-трекер» (mini-Jira), собранное как
+учебно-практический стенд для DevOps: мультисервисный Docker Compose, миграции
+Prisma, JWT-аутентификация, health-пробы, структурированные логи, релизы в Docker
+Hub и деплой по SSH на Linux-VPS.
 
-The application code is provided as a **starting point** — your job is to harden, automate and operate it.
-
----
-
-## 1. Stack
-
-| Layer       | Tech                                          |
-|-------------|-----------------------------------------------|
-| Backend     | NestJS 10 (TypeScript) + Prisma 5             |
-| Database    | PostgreSQL 16                                 |
-| Cache / RL  | Redis 7                                       |
-| Frontend    | React 18 + Vite + TypeScript + TailwindCSS    |
-| Auth        | JWT (access + rotating refresh) with bcrypt   |
-| Tests       | Jest (backend), Vitest (frontend)             |
-| Reverse proxy (prod) | nginx (`deploy/edge.conf`)           |
-| CI / CD     | GitHub Actions → Docker Hub → SSH to VPS      |
-
-### Repository layout
-
-```
-.
-├── backend/                NestJS API
-│   ├── prisma/             Schema, migrations, seed
-│   ├── src/                Modules: auth, users, projects, tasks, comments, health, config
-│   ├── test/               e2e tests
-│   └── Dockerfile          Multi-stage, non-root, with HEALTHCHECK
-├── frontend/               React SPA
-│   ├── src/                Pages, components, API client, auth context
-│   ├── nginx.conf          SPA fallback + /healthz
-│   └── Dockerfile          Multi-stage build → nginx runtime
-├── deploy/
-│   └── edge.conf           Production reverse-proxy config
-├── docker-compose.yml      Local dev stack (builds locally)
-├── docker-compose.prod.yml Production stack (pulls from Docker Hub)
-├── Makefile                Common operational commands
-├── .env.example            Top-level env template
-└── .github/workflows/
-    ├── ci.yml              Lint + tests on PR / push
-    ├── release.yml         Build + push images on push to main / tags
-    └── deploy.yml          SSH deploy to VPS
-```
+Связанные документы:
+- [RUNNING-WINDOWS.md](./RUNNING-WINDOWS.md) — пошаговый локальный запуск на Windows + Docker.
+- [CLAUDE.md](./CLAUDE.md) — справочник для AI-агентов, работающих с репозиторием.
 
 ---
 
-## 2. Local quickstart
+## 1. Стек
+
+| Слой | Технология |
+|---|---|
+| Backend | NestJS 10 (TypeScript) + Prisma 5 |
+| База данных | PostgreSQL 16 |
+| Кэш / rate-limit | Redis 7 |
+| Frontend | React 18 + Vite + TypeScript + TailwindCSS |
+| Auth | JWT (access + ротация refresh), bcrypt |
+| Тесты | Jest (backend), Vitest (frontend) |
+| Reverse proxy (prod) | nginx (`deploy/edge.conf`) |
+| CI / CD | GitHub Actions → Docker Hub → SSH на VPS |
+
+---
+
+## 2. Архитектура
+
+- **Backend** — модульное NestJS-приложение: `auth` (JWT access + ротация refresh,
+  bcrypt), `users`, `projects`, `tasks`, `comments`, `health`, `config`.
+  Глобальный `ValidationPipe` (`whitelist` + `forbidNonWhitelisted` + `transform`),
+  `helmet`, rate-limit (`@nestjs/throttler` + Redis), структурированные JSON-логи
+  (`nestjs-pino`) с redact'ом заголовков `Authorization`/`Cookie`.
+- **Frontend** — SPA на React: страницы Login/Register, список проектов, детальная
+  страница проекта (Kanban-доска, комментарии, назначения). Axios-клиент с
+  interceptor'ом, автоматически обновляющим access-токен по 401.
+- **БД** — Prisma как source of truth (`backend/prisma/schema.prisma`). Сущности:
+  `User`, `Project`, `Task`, `Comment`, `RefreshToken`.
+- **Прод** — образы собираются в CI и публикуются в Docker Hub; на VPS их тянет
+  `docker-compose.prod.yml`, перед edge-nginx (`deploy/edge.conf`).
+
+### Структура репозитория
+
+```
+backend/                 NestJS API
+  prisma/                схема, миграции, seed
+  src/                   модули: auth, users, projects, tasks, comments, health, config
+  test/                  e2e-тесты
+  Dockerfile             multi-stage, non-root, с HEALTHCHECK
+frontend/                React SPA
+  src/                   страницы, компоненты, API-клиент, auth-контекст
+  nginx.conf             SPA-фолбэк + /healthz
+  Dockerfile             multi-stage build → nginx
+deploy/edge.conf         продовый reverse-proxy
+docker-compose.yml       локальный dev-стек (сборка из исходников)
+docker-compose.prod.yml  прод-стек (образы из Docker Hub)
+Makefile                 частые операционные команды
+.env.example             шаблон переменных окружения
+.github/workflows/       ci.yml, release.yml, deploy.yml
+```
+
+---
+
+## 3. Быстрый старт (локально)
 
 ```bash
 cp .env.example .env
-# Optional: cp backend/.env.example backend/.env (only needed when running backend outside Docker)
-
-# --- ONE-TIME: generate the initial Prisma migration ---
-# prisma/migrations/ is not committed — every fork bootstraps its own.
-# This step uses the dev DB to derive the migration SQL from prisma/schema.prisma.
-docker compose up -d postgres
-docker compose run --rm backend npx prisma migrate dev --name init --skip-seed
-# Now commit the generated backend/prisma/migrations/ directory.
-
-# --- Day-to-day ---
 docker compose up -d --build
-docker compose exec backend npx prisma migrate deploy   # idempotent
+docker compose exec backend npx prisma migrate deploy   # идемпотентно; миграции в репо
 docker compose exec backend npm run prisma:seed
 ```
 
-Open:
-- Frontend: <http://localhost:5173>
-- API: <http://localhost:3000/api>
-- Swagger: <http://localhost:3000/api/docs>
-- Liveness: `GET /api/health/live`
-- Readiness (DB ping): `GET /api/health/ready`
+Адреса:
+- Frontend — <http://localhost:5173>
+- API — <http://localhost:3000/api>
+- Swagger — <http://localhost:3000/api/docs>
+- Health: `/api/health/live` (процесс), `/api/health/ready` (пинг БД)
 
-Seeded users (password `password123`): `alice@example.com`, `bob@example.com`.
+**Тестовые пользователи** (пароль `12345678`): `1@1.com`, `2@2.com`, `3@3.com`.
 
-`make help` lists the most common operational commands.
+Подробная инструкция для Windows — в [RUNNING-WINDOWS.md](./RUNNING-WINDOWS.md).
+`make help` показывает основные операционные команды.
 
 ---
 
-## 3. Environment variables
+## 4. Переменные окружения
 
-All vars are declared in `.env.example` (root, used by Compose) and `backend/.env.example` (used when running the backend outside containers).
+Все объявлены в `.env.example` (корень, используется Compose) и
+`backend/.env.example` (для запуска бэкенда вне контейнеров).
 
-| Var | Where | Default | Purpose |
+| Переменная | Где | Default | Назначение |
 |---|---|---|---|
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | compose | tracker | Postgres bootstrap |
-| `DATABASE_URL` | backend | (built from above) | Prisma connection string |
-| `REDIS_HOST` / `REDIS_PORT` | backend | redis / 6379 | Redis connection |
-| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | backend | **change in prod** | JWT signing keys |
-| `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | backend | 15m / 7d | Token lifetimes |
-| `THROTTLE_TTL` / `THROTTLE_LIMIT` | backend | 60 / 120 | Rate limit window / quota |
-| `CORS_ORIGINS` | backend | http://localhost:5173 | Comma-separated allowed origins |
-| `LOG_LEVEL` | backend | info | Pino log level |
-| `VITE_API_URL` | frontend build arg | http://localhost:3000/api | Baked into SPA bundle (dev compose only). For prod, set as GitHub repo variable so `release.yml` injects it at build time. |
-| `DOCKERHUB_USERNAME` | prod compose | — | Docker Hub namespace for images (same value as the GitHub secret). |
-| `IMAGE_TAG` | prod compose | latest | Image tag rolled out |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | compose | tracker | Bootstrap Postgres |
+| `DATABASE_URL` | backend | (из значений выше) | Строка подключения Prisma |
+| `REDIS_HOST` / `REDIS_PORT` | backend | redis / 6379 | Подключение к Redis |
+| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | backend | **сменить в prod** | Ключи подписи JWT |
+| `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | backend | 15m / 7d | Время жизни токенов |
+| `THROTTLE_TTL` / `THROTTLE_LIMIT` | backend | 60 / 120 | Окно / квота rate-limit |
+| `CORS_ORIGINS` | backend | http://localhost:5173 | Разрешённые origins (через запятую) |
+| `LOG_LEVEL` | backend | info | Уровень логов Pino |
+| `VITE_API_URL` | frontend build arg | http://localhost:3000/api | Зашивается в бандл (только dev compose). Для prod задаётся как GitHub repo variable и инжектится `release.yml` при сборке. |
+| `DOCKERHUB_USERNAME` | prod compose | — | Namespace образов в Docker Hub (совпадает с GitHub secret) |
+| `IMAGE_TAG` | prod compose | latest | Тег раскатываемого образа |
 
-Generate prod secrets with:
-
-```bash
-openssl rand -base64 48
-```
+Сгенерировать прод-секреты: `openssl rand -base64 48`.
 
 ---
 
-## 4. Database & migrations
+## 5. База данных и миграции
 
-Prisma is the source of truth. Schema lives at `backend/prisma/schema.prisma`.
+Prisma — source of truth, схема в `backend/prisma/schema.prisma`. Начальная
+миграция закоммичена в `backend/prisma/migrations/`, поэтому стенд поднимается без
+ручной генерации.
 
-| Action | Command |
+| Действие | Команда |
 |---|---|
-| Bootstrap initial migration (one-time, per fork) | `docker compose run --rm backend npx prisma migrate dev --name init --skip-seed` |
-| Create a new migration (dev) | `make migrate-dev` |
-| Apply pending migrations (any env) | `make migrate` |
-| Run the seed | `make seed` |
-| Open `psql` | `make shell-db` |
+| Применить миграции (любая среда) | `make migrate` (`prisma migrate deploy`) |
+| Создать новую миграцию (dev) | `make migrate-dev` (`prisma migrate dev --name <x>`) |
+| Запустить seed | `make seed` |
+| Открыть `psql` | `make shell-db` |
 
-Commit the generated `backend/prisma/migrations/` directory to git. Migrations are applied automatically by the deploy workflow **before** rolling out new app containers.
+В деплое миграции применяются автоматически (workflow `deploy.yml`) **до** выката
+новых контейнеров приложения.
 
 ---
 
-## 5. CI/CD — what to wire up
+## 6. CI/CD
 
-The `main` branch is treated as the deployable trunk. Pipeline overview:
+Ветка `main` — деплой-trunk.
 
 ```
-PR → ci.yml (lint + tests)
-push to main → release.yml (build + push :latest + :sha-XXXX to Docker Hub)
-              → deploy.yml (SSH to VPS, pull, migrate, restart, readiness probe)
+PR → ci.yml (lint + тесты)
+push в main → release.yml (build + push :latest и :sha-XXXX в Docker Hub)
+            → deploy.yml (SSH на VPS: pull → миграции → up → readiness-probe)
 ```
 
-### GitHub secrets to create
+### GitHub Secrets
 
-| Secret | Used by | Value |
+| Secret | Используется | Значение |
 |---|---|---|
-| `DOCKERHUB_USERNAME` | release.yml | Docker Hub username |
-| `DOCKERHUB_TOKEN` | release.yml | Docker Hub access token (not password) |
-| `VPS_HOST` | deploy.yml | VPS hostname or IP |
-| `VPS_USER` | deploy.yml | SSH user (e.g. `deploy`) |
-| `VPS_SSH_KEY` | deploy.yml | Private key matching an authorised public key on the VPS |
-| `VPS_DEPLOY_DIR` | deploy.yml | Absolute path on the VPS where `docker-compose.prod.yml` + `.env` live |
+| `DOCKERHUB_USERNAME` | release.yml | username в Docker Hub |
+| `DOCKERHUB_TOKEN` | release.yml | access-token Docker Hub (не пароль) |
+| `VPS_HOST` | deploy.yml | хост/IP VPS |
+| `VPS_USER` | deploy.yml | SSH-пользователь (например `deploy`) |
+| `VPS_SSH_KEY` | deploy.yml | приватный ключ, чей публичный авторизован на VPS |
+| `VPS_DEPLOY_DIR` | deploy.yml | путь на VPS с `docker-compose.prod.yml` + `.env` |
 
-### GitHub variables to create
+### GitHub Variables
 
-| Var | Value |
+| Variable | Значение |
 |---|---|
-| `VITE_API_URL` | Public URL of the API, e.g. `https://tracker.example.com/api` — baked into the SPA |
+| `VITE_API_URL` | публичный URL API, например `https://tracker.example.com/api` |
 
 ---
 
-## 6. VPS bootstrap (one-time)
+## 7. Деплой на VPS (bootstrap, один раз)
 
-On a fresh Linux VPS (Ubuntu / Debian assumed):
+На свежем Linux-VPS (Ubuntu/Debian):
 
 ```bash
-# 1. System packages
+# Системные пакеты
 sudo apt update && sudo apt install -y docker.io docker-compose-plugin git curl
 sudo systemctl enable --now docker
 
-# 2. Dedicated deploy user
-sudo useradd -m -s /bin/bash deploy
-sudo usermod -aG docker deploy
+# Пользователь deploy
+sudo useradd -m -s /bin/bash deploy && sudo usermod -aG docker deploy
 sudo mkdir -p /home/deploy/.ssh
-sudo cp ~/.ssh/authorized_keys /home/deploy/.ssh/   # or paste the CI public key
-sudo chown -R deploy:deploy /home/deploy/.ssh
-sudo chmod 700 /home/deploy/.ssh
-sudo chmod 600 /home/deploy/.ssh/authorized_keys
+# положить публичный CI-ключ в /home/deploy/.ssh/authorized_keys (chmod 700 .ssh, 600 authorized_keys)
 
-# 3. Deploy directory
+# Каталог деплоя
 sudo -u deploy mkdir -p /home/deploy/tracker
+# скопировать в него docker-compose.prod.yml, deploy/edge.conf и заполненный .env (НЕ коммитить)
+
+# Первый деплой вручную (до того как CI возьмёт управление)
 cd /home/deploy/tracker
-
-# 4. Place these two files (copy from your laptop with scp or paste):
-#    - docker-compose.prod.yml
-#    - .env                     (filled-in production values, NOT committed to git)
-#    - deploy/edge.conf         (if you want the reverse proxy)
-
-# 5. First deploy (manually, before CI takes over)
-docker login   # one time, so prod can pull private images if needed
+docker login
 docker compose -f docker-compose.prod.yml --env-file .env pull
 docker compose -f docker-compose.prod.yml --env-file .env run --rm backend npx prisma migrate deploy
 docker compose -f docker-compose.prod.yml --env-file .env up -d
 ```
 
-Set `VPS_DEPLOY_DIR=/home/deploy/tracker` in GitHub secrets.
+Задать `VPS_DEPLOY_DIR=/home/deploy/tracker` в GitHub Secrets.
 
-### Putting TLS in front
-
-The repo's `edge` service is plain HTTP. For prod use one of:
-- **Caddy** in front of port 80 (1-line auto-HTTPS) — simplest
-- **Traefik** as the edge instead of the bundled nginx
-- **Let's Encrypt + certbot** mounted into the `edge` container
-
-Pick one and document it in your fork.
+**TLS.** Сервис `edge` отдаёт plain HTTP. Для prod поставь спереди Caddy
+(авто-HTTPS в одну строку), Traefik или Let's Encrypt + certbot.
 
 ---
 
-## 7. Observability
+## 8. Observability
 
-The starter is intentionally bare so you can wire your preferred stack.
+Стенд намеренно «голый» — стек наблюдаемости подключается под себя.
 
-- **Logs:** Pino → stdout, JSON in prod, pretty in dev. `redact` strips `Authorization` and `Cookie` headers. Ship with Loki / ELK / Vector — your call.
-- **Health probes:** `/api/health/live` (process up) and `/api/health/ready` (DB reachable). Wire these into your VPS uptime monitor (UptimeRobot / BetterStack / Prometheus blackbox-exporter).
-- **Metrics:** not exposed yet — add `@willsoto/nestjs-prometheus` or similar and a `/metrics` endpoint guarded by an internal network ACL.
-- **Tracing:** add OpenTelemetry SDK in `main.ts` if you want OTLP export.
-
----
-
-## 8. DevOps practice ideas (your homework)
-
-These are deliberately not implemented — they are what makes the project worth shipping on a CV:
-
-**Pipelines**
-- [ ] Add an ESLint config and fail CI on warnings
-- [ ] Add a `docker-compose` job that boots the stack and curls `/api/health/ready` (true smoke test)
-- [ ] Cache Prisma client + npm between CI jobs
-- [ ] Add `trivy` / `grype` image scanning before push
-- [ ] Sign images with cosign
-
-**Infrastructure**
-- [ ] Replace SSH deploy with Ansible playbook, then with Terraform-provisioned infra
-- [ ] Put Caddy/Traefik in front for auto-HTTPS
-- [ ] Set up offsite `pg_dump` backups (cron + S3/Backblaze) — test the restore!
-- [ ] Move secrets into Vault / Doppler / SOPS instead of a `.env` file
-- [ ] Take the same stack to k8s — minikube/kind locally, then a managed cluster
-
-**Observability**
-- [ ] Loki + Promtail + Grafana for logs
-- [ ] Prometheus + node-exporter + cAdvisor + alertmanager
-- [ ] Add Prometheus metrics to the NestJS app
-- [ ] Build a "golden signals" dashboard (latency, traffic, errors, saturation)
-
-**Reliability**
-- [ ] Zero-downtime deploys (`--scale backend=2` + healthcheck wait)
-- [ ] Blue-green or canary via Traefik weighted routing
-- [ ] Add a `make rollback` target that pins `IMAGE_TAG` to the previous tag
-- [ ] Chaos test: kill the DB mid-request, kill backend, fill the disk
-
-When you can demonstrate three or four of these end-to-end, you'll have plenty to talk about in a middle-level interview.
+- **Логи:** Pino → stdout (JSON). `redact` вырезает заголовки `Authorization` и
+  `Cookie`. Сбор — Loki / ELK / Vector на выбор.
+- **Health-пробы:** `/api/health/live` (процесс жив) и `/api/health/ready`
+  (БД доступна) — заводятся в мониторинг аптайма.
+- **Метрики:** пока не экспонированы — можно добавить `@willsoto/nestjs-prometheus`
+  и эндпоинт `/metrics` за внутренним ACL.
+- **Tracing:** при желании — OpenTelemetry SDK в `main.ts` с OTLP-экспортом.
 
 ---
 
-## 9. Useful commands cheat sheet
+## 9. Шпаргалка команд
 
 ```bash
-# Dev
-make up              # start everything
-make migrate         # apply DB migrations
-make seed            # seed sample data
-make logs            # tail logs
-make shell-backend   # shell in backend container
-make shell-db        # psql in postgres
-make test-backend    # unit tests
-make down            # stop everything
+make up              # поднять стек
+make migrate         # применить миграции
+make seed            # засидить данные
+make logs            # смотреть логи
+make shell-backend   # шелл в backend-контейнере
+make shell-db        # psql в postgres
+make test-backend    # юнит-тесты backend
+make down            # остановить
 
-# Prod (on the VPS)
-make prod-pull       # pull new images
-make prod-migrate    # apply migrations
-make prod-up         # roll out
-make prod-logs       # tail prod logs
+# Прод (на VPS)
+make prod-pull       # подтянуть образы
+make prod-migrate    # применить миграции
+make prod-up         # выкатить
+make prod-logs       # логи прода
 ```
