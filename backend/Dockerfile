@@ -29,6 +29,10 @@ COPY --from=build --chown=app:app /app/node_modules ./node_modules
 COPY --from=build --chown=app:app /app/dist ./dist
 COPY --from=build --chown=app:app /app/prisma ./prisma
 COPY --from=build --chown=app:app /app/package.json ./package.json
+# tsconfig.json is needed at runtime so `ts-node prisma/seed.ts` (the prisma seed)
+# compiles as CommonJS. Without it ts-node falls back to ESM and Node 20 fails on
+# the seed's top-level await with ERR_UNKNOWN_FILE_EXTENSION for ".ts".
+COPY --from=build --chown=app:app /app/tsconfig.json ./tsconfig.json
 
 USER app
 EXPOSE 3000
