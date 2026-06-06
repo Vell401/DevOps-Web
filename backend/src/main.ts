@@ -13,22 +13,18 @@ async function bootstrap() {
 
   const config = app.get(AppConfigService);
 
-  // Default helmet enables a strict Content-Security-Policy that blocks Swagger
-  // UI's inline scripts (you'd get a blank page on /api/docs). Loosen CSP to
-  // allow inline scripts/styles from same origin — the Swagger UI bundle is
-  // served by Nest itself, so this is not opening anything to third parties.
+  // For a LAN pet-project served over plain HTTP:
+  //   - CSP off:  Swagger UI uses inline scripts and eval(); strict CSP makes
+  //               /api/docs blank.
+  //   - HSTS off: the default `Strict-Transport-Security` header tells the
+  //               browser to force HTTPS on this host for ~180 days. Once you
+  //               visit once over HTTP, the cached HSTS upgrades subsequent
+  //               HTTP requests to HTTPS — and we don't have an HTTPS server.
   app.use(
     helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: ["'self'"],
-          scriptSrc: ["'self'", "'unsafe-inline'"],
-          styleSrc: ["'self'", "'unsafe-inline'", 'https:'],
-          imgSrc: ["'self'", 'data:', 'https:'],
-          connectSrc: ["'self'"],
-        },
-      },
+      contentSecurityPolicy: false,
       crossOriginEmbedderPolicy: false,
+      strictTransportSecurity: false,
     }),
   );
   app.setGlobalPrefix('api');
@@ -51,7 +47,10 @@ async function bootstrap() {
     .addBearerAuth()
     .build();
   const doc = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, doc);
+  // Path 'docs' + useGlobalPrefix → served at /api/docs. Passing 'api/docs'
+  // literally causes Swagger UI to emit asset URLs like /api/docs/docs/foo.png
+  // (the prefix gets baked in twice).
+  SwaggerModule.setup('docs', app, doc, { useGlobalPrefix: true });
 
   await app.listen(config.port, '0.0.0.0');
   Logger.log(`API listening on :${config.port}`, 'Bootstrap');
