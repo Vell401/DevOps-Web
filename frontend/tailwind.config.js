@@ -9,23 +9,23 @@ export default {
         mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       colors: {
-        // Dark canvas. paper = the user's #696969 (DimGray). Cards lift one
-        // step lighter, recessed states (inputs, hover) one step darker.
-        paper: '#696969',
+        // Neutral cool grayscale — slate family. Paper is intentionally a
+        // perceptible grey (not off-white) so white surface cards "lift" off it.
+        paper: '#E4E7EC',
         ink: {
-          DEFAULT: '#F2F2F2',
-          muted: '#CFCFCF',
-          subtle: '#A1A1A1',
+          DEFAULT: '#1F2937',
+          muted: '#6B7280',
+          subtle: '#8B92A0',
         },
         line: {
-          DEFAULT: '#8A8A8A',
-          strong: '#A1A1A1',
+          DEFAULT: '#D5D9DF',
+          strong: '#B7BDC6',
         },
         surface: {
-          DEFAULT: '#7C7C7C',
-          sunken: '#5A5A5A',
+          DEFAULT: '#FFFFFF',
+          sunken: '#D8DBE1',
         },
-        // Accents — same as before, they pop nicely on dark grey.
+        // accents kept but desaturated — still recognisable, no longer "loud"
         sun: {
           50: '#FFF7DB',
           100: '#FBE9A6',
@@ -40,27 +40,23 @@ export default {
           400: '#3E9E76',
           500: '#1F7A57',
         },
-        // Chip backgrounds stay pastel so they read as "islands" of colour
-        // on a dark grey card. Per-chip text colours in lib/meta.ts are dark
-        // hex values, which sit well on the pastel pads.
+        // tinted chip backgrounds — cooler, slightly desaturated
         chip: {
-          gray: '#9CA3AF',
-          brown: '#D6C5A8',
-          orange: '#EFC58E',
-          yellow: '#F2DC86',
-          green: '#B7D8C0',
-          blue: '#BCC9D9',
-          purple: '#C9BFD9',
-          pink: '#DEBDC8',
-          red: '#E1B6B2',
+          gray: '#E8EAEE',
+          brown: '#E2D6C5',
+          orange: '#F2D2AC',
+          yellow: '#F4E3A0',
+          green: '#C7E2D2',
+          blue: '#CFDAE9',
+          purple: '#D6CCE5',
+          pink: '#E9CAD5',
+          red: '#ECC5C2',
         },
       },
       boxShadow: {
-        // Shadows are subtle on dark — borders do most of the lifting. Keep
-        // a tiny one so cards still feel layered.
-        card: '0 1px 0 0 rgba(0,0,0,0.18), 0 1px 2px 0 rgba(0,0,0,0.18)',
-        drawer: '-12px 0 32px -8px rgba(0,0,0,0.45)',
-        focus: '0 0 0 3px rgba(232,194,74,0.45)',
+        card: '0 1px 0 0 rgba(17,24,39,0.04), 0 1px 2px 0 rgba(17,24,39,0.05)',
+        drawer: '-12px 0 32px -8px rgba(17,24,39,0.18)',
+        focus: '0 0 0 3px rgba(107,114,128,0.35)',
       },
       borderRadius: {
         xs: '3px',
