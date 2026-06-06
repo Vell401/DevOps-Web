@@ -78,11 +78,78 @@ docker compose exec backend npm run prisma:seed
 - Swagger — <http://localhost:3000/api/docs>
 - Health: `/api/health/live` (процесс), `/api/health/ready` (пинг БД)
 
-**Тестовые пользователи**: `admin@tracker.local` / `admin1234` и `test@tracker.local` / `test1234`.
-Свои пароли при сиде: `SEED_ADMIN_PASSWORD=... SEED_TEST_PASSWORD=... npm run prisma:seed`.
+**Тестовые пользователи**: `admin@tracker.local` и `test@tracker.local`. Пароли
+задаёшь сам через env-переменные при сиде (`SEED_ADMIN_PASSWORD`, `SEED_TEST_PASSWORD`).
+В прод-деплое они приходят из GitHub Secrets — см. [RUNNING-VM.md](./RUNNING-VM.md).
 
 Подробная инструкция для Windows — в [RUNNING-WINDOWS.md](./RUNNING-WINDOWS.md).
 `make help` показывает основные операционные команды.
+
+### Как править код локально
+
+Контейнер на проде — это финальный артефакт сборки, а **редактируешь ты исходники в этом же репо** (`frontend/src/`, `backend/src/`, `backend/prisma/schema.prisma` и т.д.). Цикл:
+
+1. **Открываешь репо** в VS Code или любом редакторе.
+2. **Правишь файл.** Например, добавляешь поле в `frontend/src/pages/ProjectsPage.tsx`.
+3. **Проверяешь локально** одним из двух способов:
+   - **Hot-reload для фронта** (быстрее, нужен только Node):
+     ```bash
+     cd frontend && npm install && npm run dev
+     # http://localhost:5173 с моментальной перезагрузкой при сохранении
+     ```
+     Бэк при этом всё равно нужен — параллельно подними docker-compose или backend отдельно.
+   - **Весь стек локально через Docker** (медленнее, ближе к проду):
+     ```bash
+     docker compose up -d --build
+     # пересобирает образы из исходников при каждом запуске
+     ```
+4. **Запушил в `dev`** — pipeline сам выкатит новую версию на VM через 3-5 минут.
+
+Когда меняется **схема БД** (`backend/prisma/schema.prisma`) — сразу же создаёшь миграцию:
+
+```bash
+cd backend
+npx prisma migrate dev --name <короткое-описание>
+# Появится новый файл в backend/prisma/migrations/ — коммитишь его
+```
+
+При следующем деплое workflow автоматом применит миграцию через `prisma migrate deploy`.
+
+### API endpoints
+
+Интерактивный список с try-it-out — **Swagger UI**:
+- Локально: <http://localhost:3000/api/docs>
+- На VM: `http://<IP_VM>/api/docs`
+
+Краткая выжимка (все маршруты под префиксом `/api`):
+
+| Метод | Путь | Назначение | Auth |
+|---|---|---|---|
+| POST | `/auth/register` | Регистрация | — |
+| POST | `/auth/login` | Логин, получить access + refresh | — |
+| POST | `/auth/refresh` | Получить новый access по refresh | — |
+| POST | `/auth/logout` | Отозвать refresh-токен | — |
+| GET | `/auth/me` | Текущий пользователь (включая `isAdmin`) | Bearer |
+| GET | `/users` | Список юзеров (для assignee-picker) | Bearer |
+| GET | `/projects` | Мои проекты + stats | Bearer |
+| GET, POST | `/projects`, `/projects/:id` | CRUD проектов | Bearer |
+| PATCH, DELETE | `/projects/:id` | Изменить / удалить проект | Bearer |
+| GET | `/projects/:id/activity` | Лента активности проекта | Bearer |
+| GET, POST | `/projects/:projectId/tasks` | Список / создать задачу | Bearer |
+| GET, PATCH, DELETE | `/tasks/:id` | Получить / изменить / удалить | Bearer |
+| GET | `/tasks/:id/activity` | История изменений задачи | Bearer |
+| GET, POST | `/tasks/:taskId/comments` | Список / добавить комментарий | Bearer |
+| DELETE | `/comments/:id` | Удалить свой комментарий | Bearer |
+| GET, POST | `/projects/:projectId/labels` | Лейблы проекта: список / создать | Bearer |
+| PATCH, DELETE | `/labels/:id` | Изменить / удалить лейбл | Bearer |
+| GET | `/admin/stats` | Stats для админ-дашборда | Bearer + Admin |
+| GET | `/admin/users` | Расширенный список юзеров | Bearer + Admin |
+| PATCH | `/admin/users/:id` | name / isAdmin / newPassword | Bearer + Admin |
+| DELETE | `/admin/users/:id` | Удалить пользователя | Bearer + Admin |
+| GET | `/health/live` | Жив ли процесс | — |
+| GET | `/health/ready` | Готов ли (пинг БД) | — |
+
+`Bearer` = заголовок `Authorization: Bearer <access_token>`, который выдаёт `/auth/login`.
 
 ---
 

@@ -495,7 +495,81 @@ docker compose -f docker-compose.prod.yml --env-file .env start backend
 
 ---
 
-## 8. Шпаргалка на каждый день
+## 8. Подключиться к Postgres с локального ПК (DBeaver / psql / любой клиент)
+
+Postgres биндится только на `127.0.0.1` VM-ы (не на LAN — это специально, безопасность).
+Чтобы попасть с ноута, поднимаем **SSH-туннель**. Сам туннель шифруется поверх SSH,
+снаружи ничего лишнего не торчит.
+
+### Через DBeaver
+
+Database → New Database Connection → **PostgreSQL**.
+
+**Вкладка Main:**
+
+| Поле | Значение |
+|---|---|
+| Host | `localhost` (это локальный конец туннеля, не VM) |
+| Port | `5432` |
+| Database | `tracker` |
+| Username | `tracker` |
+| Password | значение `POSTGRES_PASSWORD` из GitHub Secrets |
+
+**Вкладка SSH** → поставить галочку *Use SSH Tunnel*:
+
+| Поле | Значение |
+|---|---|
+| Host/IP | IP твоей VM |
+| Port | `22` |
+| User Name | твой SSH-юзер (тот, под которым логинишься в VM, **не** `deploy`) |
+| Authentication Method | Public Key (рекомендую) или Password |
+| Private key | путь к твоему `~/.ssh/id_ed25519` или `id_rsa` |
+
+Жмёшь *Test Connection* — должно зелёное. DBeaver сам поднимет туннель, отправит трафик
+через SSH на VM, оттуда уже в `127.0.0.1:5432` (наш Postgres).
+
+> Где взять пароль БД: GitHub → Settings → Secrets and variables → Actions → но
+> сам секрет посмотреть **нельзя** (GitHub скрывает). Если забыл — на VM прочитаешь:
+> `sudo cat /opt/tracker/.env | grep POSTGRES_PASSWORD`.
+
+### Через `psql` с локального ПК (если не хочется DBeaver)
+
+Открываешь в локальном терминале:
+
+```bash
+ssh -L 5432:127.0.0.1:5432 <твой-ssh-юзер>@<ip-vm>
+```
+
+Пока эта SSH-сессия открыта, на твоём ноуте локальный порт 5432 проброшен на VM.
+В **другом** окне терминала:
+
+```bash
+psql -h localhost -p 5432 -U tracker -d tracker
+# попросит пароль — тот же POSTGRES_PASSWORD
+```
+
+### Если порт `5432` на ноуте уже занят локальным Postgres
+
+Используй любой другой свободный — например `15432`:
+
+В DBeaver: SSH-вкладка → Local Port: `15432`. В Main: Port: `15432` (DBeaver сам мапит).
+
+Через psql:
+```bash
+ssh -L 15432:127.0.0.1:5432 user@vm
+# другом окне:
+psql -h localhost -p 15432 -U tracker -d tracker
+```
+
+### Почему так, а не "просто открыть 5432 наружу"
+
+Потому что Postgres с публичным паролем на LAN/интернете живёт ровно до первого
+сканера портов. SSH-туннель — стандартная безопасная схема: и тебе не надо
+заморачиваться с TLS / pg_hba правилами, и снаружи ничего не светится.
+
+---
+
+## 9. Шпаргалка на каждый день
 
 ```bash
 # Что запущено?
@@ -516,7 +590,7 @@ sudo docker image prune -af
 
 ---
 
-## 9. Ротация пароля БД — важный нюанс
+## 10. Ротация пароля БД — важный нюанс
 
 Postgres инициализирует пароль из `POSTGRES_PASSWORD` **только на первом
 старте**, когда том пустой. Если просто поменять секрет в GitHub и сделать
@@ -538,7 +612,7 @@ docker compose -f docker-compose.prod.yml --env-file .env exec postgres \
 
 ---
 
-## 10. Траблшутинг
+## 11. Траблшутинг
 
 | Симптом | Куда смотреть |
 |---|---|
@@ -551,11 +625,11 @@ docker compose -f docker-compose.prod.yml --env-file .env exec postgres \
 | Healthcheck не дожидается | `docker compose logs backend` — обычно либо CORS_ORIGINS не совпал, либо DB не поднялась |
 | 502 от edge nginx | контейнер backend нездоров — `docker ps` и `docker compose logs backend` |
 | Браузер режет CORS | `CORS_ORIGINS` не точно соответствует Origin-у в браузере (без слеша в конце) — поправь секрет, передеплой |
-| Бэк не подключается к БД с "password authentication failed" | пароль в `.env` разошёлся с тем, что внутри Postgres-тома — см. секцию 9 |
+| Бэк не подключается к БД с "password authentication failed" | пароль в `.env` разошёлся с тем, что внутри Postgres-тома — см. секцию 10 |
 
 ---
 
-## 11. Добавить prod runner в будущем
+## 12. Добавить prod runner в будущем
 
 Когда поднимешь вторую VM под prod, повторяешь шаги 1-3.1 с одной разницей:
 
@@ -588,7 +662,7 @@ on:
 
 ---
 
-## 12. Чем это **не** является
+## 13. Чем это **не** является
 
 - **Не multi-host.** Одна VM. Если умрёт — приложение умерло. В реальном проде
   был бы как минимум standby и managed Postgres.

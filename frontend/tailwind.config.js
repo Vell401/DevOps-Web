@@ -9,20 +9,21 @@ export default {
         mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       colors: {
-        // Neutral cool grayscale — slate family
-        paper: '#F4F5F7',
+        // Neutral cool grayscale — slate family. Paper is intentionally a
+        // perceptible grey (not off-white) so white surface cards "lift" off it.
+        paper: '#E4E7EC',
         ink: {
           DEFAULT: '#1F2937',
           muted: '#6B7280',
-          subtle: '#9CA3AF',
+          subtle: '#8B92A0',
         },
         line: {
-          DEFAULT: '#E5E7EB',
-          strong: '#D1D5DB',
+          DEFAULT: '#D5D9DF',
+          strong: '#B7BDC6',
         },
         surface: {
           DEFAULT: '#FFFFFF',
-          sunken: '#EDEEF1',
+          sunken: '#D8DBE1',
         },
         // accents kept but desaturated — still recognisable, no longer "loud"
         sun: {
