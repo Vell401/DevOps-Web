@@ -130,32 +130,40 @@ exit
 ## 3. Установить self-hosted GitHub runner
 
 GitHub → твой репо → *Settings → Actions → Runners → New self-hosted runner →
-Linux x64*. Там будут готовые команды с одноразовым registration token.
-Выполняй их под `deploy`:
+Linux x64*. На этой странице GitHub генерирует **готовые команды** с одноразовым
+registration token. Идея простая: копируешь их по порядку и вставляешь в SSH-сессию
+под пользователем `deploy`.
+
+Сначала переключись на `deploy` — флаг `-i` важен, он логинит как полноценный
+shell и оставляет тебя в `/home/deploy`:
 
 ```bash
 sudo -iu deploy
-mkdir actions-runner && cd actions-runner
-
-# URL для скачивания возьми со страницы GitHub — версия меняется со временем
-curl -o actions-runner-linux-x64.tar.gz -L \
-  https://github.com/actions/runner/releases/download/v2.XXX.X/actions-runner-linux-x64-2.XXX.X.tar.gz
-tar xzf ./actions-runner-linux-x64.tar.gz
-
-# Лейблы должны включать "tracker" — workflow его ищет:
-./config.sh \
-  --url https://github.com/<твой-юзер>/<твой-репо> \
-  --token <REGISTRATION_TOKEN_СО_СТРАНИЦЫ> \
-  --name tracker-vm \
-  --labels self-hosted,linux,tracker \
-  --work _work \
-  --unattended
-exit
+pwd             # должно быть /home/deploy
 ```
 
-Лейблы `self-hosted,linux,tracker` совпадают с `runs-on` в
-`.github/workflows/dev-cd.yml`. Без `tracker` workflow не запустится на этом
-раннере.
+Все файлы раннера будут жить в `/home/deploy/actions-runner` — это нормальное
+рабочее место для self-hosted runner-а, и `svc.sh install` ниже запишет этот путь
+в systemd-юнит. Не путай с `/opt/tracker` — там данные приложения.
+
+Дальше — копи-пейст со страницы GitHub:
+
+1. **Download** — три команды (`mkdir actions-runner && cd actions-runner`, `curl -o …`, `tar xzf …`).
+   URL версии меняется со временем, поэтому бери его именно со страницы GitHub.
+2. **Configure** — команда `./config.sh --url https://github.com/<твой-юзер>/<твой-репо> --token <TOKEN>`.
+   GitHub задаст несколько интерактивных вопросов:
+   - *Enter the name of the runner group* — Enter (по умолчанию `Default`).
+   - *Enter the name of runner* — введи **`dev-vm`** (так будет понятно в UI, когда заведёшь второй runner для prod).
+   - *Enter any additional labels* — введи **`dev`**. Это критично: workflow `dev-cd.yml`
+     ищет runner с лейблами `self-hosted` + `dev`, и без второго он не запустится. GitHub
+     по умолчанию вешает `self-hosted`, `Linux`, `X64` — а `dev` мы добавляем здесь.
+   - *Enter name of work folder* — Enter (по умолчанию `_work`).
+
+После того как `config.sh` отработал и сказал "Runner successfully added" — выйди из shell-а `deploy`:
+
+```bash
+exit
+```
 
 ### 3.1 Запустить как systemd-сервис
 
@@ -173,8 +181,9 @@ Runner автоматически перезапустится при ребут
 
 ### 3.2 Проверить, что runner подключился
 
-Репо → Settings → Actions → Runners. Должен быть `tracker-vm` со статусом
-**Idle**. Сделай тестовый push в `dev` — deploy-job заберётся.
+Репо → Settings → Actions → Runners. Должен быть `dev-vm` со статусом
+**Idle** и набором лейблов `self-hosted, Linux, X64, dev`. Сделай тестовый push в `dev`
+— deploy-job заберётся.
 
 ---
 
@@ -318,7 +327,7 @@ docker compose -f docker-compose.prod.yml --env-file .env exec postgres \
 
 | Симптом | Куда смотреть |
 |---|---|
-| Workflow висит в "Queued" на deploy-job | runner не подобрал задачу — `sudo systemctl status 'actions.runner.*'`, лейблы должны включать `tracker` |
+| Workflow висит в "Queued" на deploy-job | runner не подобрал задачу — `sudo systemctl status 'actions.runner.*'`, runner должен быть Idle на странице Settings → Actions → Runners и в его лейблах должен быть `dev` |
 | `docker compose pull` пишет "denied" | Docker Hub token протух или репо приватный — обнови `DOCKERHUB_TOKEN` |
 | `prisma migrate deploy` падает с `P3009` | предыдущая миграция упала на полпути — `docker compose exec backend npx prisma migrate resolve --rolled-back <name>`, потом повторить |
 | Healthcheck не дожидается | `docker compose logs backend` — обычно либо CORS_ORIGINS не совпал, либо DB не поднялась |
@@ -328,7 +337,40 @@ docker compose -f docker-compose.prod.yml --env-file .env exec postgres \
 
 ---
 
-## 10. Чем это **не** является
+## 10. Добавить prod runner в будущем
+
+Когда поднимешь вторую VM под prod, повторяешь шаги 1-3.1 с одной разницей:
+
+- На вопросе `Enter the name of runner` введи **`prod-vm`**.
+- На вопросе `Enter any additional labels` введи **`prod`** (не `dev`).
+- В GitHub Secrets заведи отдельные значения для prod (другой `POSTGRES_PASSWORD`,
+  другие JWT-секреты, другой `CORS_ORIGINS`). Чтобы они не пересекались с dev,
+  используй **GitHub Environments**:
+  - Repo → Settings → Environments → New environment → имя `production`.
+  - Внутри environment-а заведи те же ключи секретов (`POSTGRES_PASSWORD` и т.д.),
+    но с прод-значениями. Они **перекроют** одноимённые secrets уровня репо,
+    но только когда workflow указал `environment: production`.
+  - Включи *Required reviewers* — деплой в prod будет ждать твоей кнопки "Approve".
+
+Затем создай `.github/workflows/prod-cd.yml` по образу `dev-cd.yml`, поменяв:
+
+```yaml
+on:
+  push:
+    branches: [main]              # вместо dev
+# ...
+  deploy:
+    runs-on: [self-hosted, prod]  # вместо [self-hosted, dev]
+    environment: production       # вместо dev — включит approval gate
+```
+
+Дальше workflow `dev-cd.yml` будет уходить только на `dev-vm`, `prod-cd.yml`
+только на `prod-vm`, потому что лейблы у них разные. Один не подменит другой
+даже случайно.
+
+---
+
+## 11. Чем это **не** является
 
 - **Не multi-host.** Одна VM. Если умрёт — приложение умерло. В реальном проде
   был бы как минимум standby и managed Postgres.

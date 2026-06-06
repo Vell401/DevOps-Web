@@ -30,7 +30,9 @@
 #   VITE_API_URL            URL baked into the frontend bundle (default: /api)
 #   DEPLOY_DIR              absolute path on the VM (default: /opt/tracker)
 #
-# Self-hosted runner must be registered with labels: self-hosted, linux, tracker
+# Self-hosted runner must be registered with the "dev" label, so a future
+# prod runner (labeled "prod") doesn't pick up this workflow by mistake.
+# At config.sh time, enter "dev" when prompted for "additional labels".
 name: Dev CI/CD
 
 on:
@@ -160,7 +162,7 @@ jobs:
       always() &&
       (needs.build.result == 'success' ||
        (github.event_name == 'workflow_dispatch' && inputs.image_tag != ''))
-    runs-on: [self-hosted, linux, tracker]
+    runs-on: [self-hosted, dev]
     environment: dev
     env:
       DEPLOY_DIR: ${{ vars.DEPLOY_DIR || '/opt/tracker' }}
