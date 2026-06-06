@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    color-scheme: light;
+    color-scheme: dark;
   }
 
   html,
@@ -21,8 +21,8 @@
   }
 
   ::selection {
-    background: theme('colors.sun.200');
-    color: theme('colors.ink.DEFAULT');
+    background: theme('colors.sun.300');
+    color: #1a1a1a;
   }
 
   /* tighter native form rings */
@@ -35,11 +35,12 @@
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition focus-visible:shadow-focus;
   }
+  /* On a dark canvas the primary action wants to be bright, not "ink on paper" */
   .btn-primary {
-    @apply btn bg-ink text-paper hover:bg-ink/90 active:bg-ink;
+    @apply btn bg-ink text-[#1a1a1a] hover:bg-ink/90 active:bg-ink;
   }
   .btn-accent {
-    @apply btn bg-sun-300 text-ink hover:bg-sun-200 border border-sun-400/40;
+    @apply btn bg-sun-300 text-[#1a1a1a] hover:bg-sun-200 border border-sun-400/60;
   }
   .btn-ghost {
     @apply btn text-ink-muted hover:bg-surface-sunken hover:text-ink;
@@ -48,13 +49,14 @@
     @apply btn border border-line bg-surface text-ink hover:bg-surface-sunken;
   }
   .btn-danger {
-    @apply btn border border-chip-red text-[#9F2A20] hover:bg-chip-red/40;
+    @apply btn border border-chip-red bg-chip-red/20 text-chip-red hover:bg-chip-red/40 hover:text-ink;
   }
+  /* Inputs sit "inset" — darker than card surface so the edit affordance reads */
   .input {
-    @apply w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-ink-muted focus-visible:shadow-focus;
+    @apply w-full rounded-md border border-line bg-surface-sunken px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-ink-muted focus-visible:shadow-focus;
   }
   .input-flush {
-    @apply w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 text-sm text-ink placeholder:text-ink-subtle hover:bg-surface-sunken focus:border-line focus:bg-surface focus-visible:shadow-focus;
+    @apply w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 text-sm text-ink placeholder:text-ink-subtle hover:bg-surface-sunken focus:border-line focus:bg-surface-sunken focus-visible:shadow-focus;
   }
   .card {
     @apply rounded-lg border border-line bg-surface shadow-card;
@@ -89,36 +91,38 @@
     text-wrap: balance;
   }
 
-  /* Highlighter — yellow underline-style emphasis, Notion-callout vibe */
+  /* Highlighter — pastel underline. Force the text colour darker over the
+     highlight so it still reads against the pastel pad. */
   .text-mark {
     background-image: linear-gradient(
       to right,
-      theme('colors.sun.200') 0%,
-      theme('colors.sun.200') 100%
+      theme('colors.sun.300') 0%,
+      theme('colors.sun.300') 100%
     );
     background-size: 100% 38%;
     background-repeat: no-repeat;
     background-position: 0 90%;
     padding: 0 2px;
+    color: #1a1a1a;
   }
   .text-mark-leaf {
     background-image: linear-gradient(
       to right,
-      theme('colors.leaf.200') 0%,
-      theme('colors.leaf.200') 100%
+      theme('colors.leaf.300') 0%,
+      theme('colors.leaf.300') 100%
     );
     background-size: 100% 38%;
     background-repeat: no-repeat;
     background-position: 0 90%;
     padding: 0 2px;
+    color: #1a1a1a;
   }
 
-  /* Subtle paper noise — cool grey, slightly stronger so it reads on the
-     darker base background. */
+  /* Paper noise — light dots so they read against the dark grey base */
   .bg-noise {
     background-image:
-      radial-gradient(rgba(31, 41, 55, 0.05) 1px, transparent 1px),
-      radial-gradient(rgba(31, 41, 55, 0.035) 1px, transparent 1px);
+      radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+      radial-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px);
     background-size: 24px 24px, 16px 16px;
     background-position: 0 0, 12px 12px;
   }

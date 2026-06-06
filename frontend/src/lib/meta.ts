@@ -67,11 +67,13 @@ export const PRIORITY_META: Record<
   LOW: { label: 'Low', tone: 'text-ink-subtle', rank: 3 },
 };
 
+// Chip backgrounds are pastel pads — they read as light islands on the dark
+// canvas. Text colours stay dark so the pad-on-dark contrast still works.
 export const LABEL_COLORS: Record<
   LabelColor,
   { bg: string; text: string; dot: string }
 > = {
-  GRAY: { bg: 'bg-chip-gray', text: 'text-ink', dot: 'bg-ink-muted' },
+  GRAY: { bg: 'bg-chip-gray', text: 'text-[#1F2937]', dot: 'bg-[#4B5563]' },
   BROWN: { bg: 'bg-chip-brown', text: 'text-[#6B4626]', dot: 'bg-[#A06B3F]' },
   ORANGE: { bg: 'bg-chip-orange', text: 'text-[#8A4B11]', dot: 'bg-[#D38133]' },
   YELLOW: { bg: 'bg-chip-yellow', text: 'text-[#7D5E11]', dot: 'bg-sun-400' },
@@ -83,7 +85,7 @@ export const LABEL_COLORS: Record<
 };
 
 export const AVATAR_TINTS: Record<string, string> = {
-  gray: 'bg-chip-gray text-ink',
+  gray: 'bg-chip-gray text-[#1F2937]',
   green: 'bg-chip-green text-[#1B6A48]',
   orange: 'bg-chip-orange text-[#8A4B11]',
   purple: 'bg-chip-purple text-[#54399A]',
