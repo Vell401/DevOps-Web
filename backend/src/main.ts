@@ -13,7 +13,24 @@ async function bootstrap() {
 
   const config = app.get(AppConfigService);
 
-  app.use(helmet());
+  // Default helmet enables a strict Content-Security-Policy that blocks Swagger
+  // UI's inline scripts (you'd get a blank page on /api/docs). Loosen CSP to
+  // allow inline scripts/styles from same origin — the Swagger UI bundle is
+  // served by Nest itself, so this is not opening anything to third parties.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'", "'unsafe-inline'"],
+          styleSrc: ["'self'", "'unsafe-inline'", 'https:'],
+          imgSrc: ["'self'", 'data:', 'https:'],
+          connectSrc: ["'self'"],
+        },
+      },
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
   app.setGlobalPrefix('api');
   app.enableCors({
     origin: config.corsOrigins,
