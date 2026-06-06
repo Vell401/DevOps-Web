@@ -1,228 +1,287 @@
-import { FormEvent, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { commentsApi, projectsApi, tasksApi, usersApi } from '../api/endpoints';
-import type { Comment, Project, Task, TaskPriority, TaskStatus, User } from '../types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import {
+  labelsApi,
+  projectsApi,
+  tasksApi,
+  usersApi,
+} from '../api/endpoints';
+import type {
+  Activity,
+  Label,
+  Project,
+  Task,
+  TaskStatus,
+  UserLite,
+} from '../types';
+import { Topbar } from '../components/Topbar';
+import { Board } from '../components/board/Board';
+import { TaskListView } from '../components/board/TaskListView';
+import { ActivityFeed } from '../components/board/ActivityFeed';
+import { Filters, type FilterState } from '../components/board/Filters';
+import { TaskDrawer } from '../components/board/TaskDrawer';
+import { NewTaskDialog } from '../components/board/NewTaskDialog';
+import { Icon } from '../ui/Icon';
+import { Spinner } from '../ui/Spinner';
+import { useToast } from '../ui/Toast';
+import { cn } from '../lib/cn';
 
-const STATUSES: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'DONE'];
-const PRIORITIES: TaskPriority[] = ['LOW', 'MEDIUM', 'HIGH'];
+type View = 'board' | 'list' | 'activity';
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [newTitle, setNewTitle] = useState('');
-  const [newPriority, setNewPriority] = useState<TaskPriority>('MEDIUM');
-  const [newAssignee, setNewAssignee] = useState<string>('');
+  const [users, setUsers] = useState<UserLite[]>([]);
+  const [labels, setLabels] = useState<Label[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<View>('board');
+  const [filters, setFilters] = useState<FilterState>({
+    q: '',
+    labelIds: [],
+  });
+  const [search, setSearch] = useSearchParams();
+  const taskId = search.get('task');
+  const setTaskId = useCallback(
+    (val: string | null) => {
+      const next = new URLSearchParams(search);
+      if (val) next.set('task', val);
+      else next.delete('task');
+      setSearch(next, { replace: true });
+    },
+    [search, setSearch],
+  );
+  const [newTaskFor, setNewTaskFor] = useState<TaskStatus | null>(null);
+  const toast = useToast();
 
-  async function reload() {
+  const reloadCore = useCallback(async () => {
     if (!id) return;
-    const [p, t, u] = await Promise.all([
+    const [p, u, l] = await Promise.all([
       projectsApi.get(id),
-      tasksApi.list(id),
       usersApi.list(),
+      labelsApi.list(id),
     ]);
     setProject(p.data);
-    setTasks(t.data);
     setUsers(u.data);
-  }
-
-  useEffect(() => {
-    void reload();
+    setLabels(l.data);
   }, [id]);
 
-  async function onCreateTask(e: FormEvent) {
-    e.preventDefault();
-    if (!id || !newTitle.trim()) return;
-    await tasksApi.create(id, {
-      title: newTitle.trim(),
-      priority: newPriority,
-      assigneeId: newAssignee || undefined,
+  const reloadTasks = useCallback(async () => {
+    if (!id) return;
+    const { data } = await tasksApi.list(id, {
+      q: filters.q || undefined,
+      assigneeId: filters.assigneeId,
+      labelIds: filters.labelIds.length ? filters.labelIds : undefined,
+      priority: filters.priority,
     });
-    setNewTitle('');
-    setNewAssignee('');
-    setNewPriority('MEDIUM');
-    await reload();
+    setTasks(data);
+  }, [id, filters]);
+
+  const reloadActivity = useCallback(async () => {
+    if (!id) return;
+    const { data } = await projectsApi.activity(id);
+    setActivities(data);
+  }, [id]);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    Promise.all([reloadCore(), reloadTasks(), reloadActivity()])
+      .catch(() => mounted && toast.push('Could not load project', 'error'))
+      .finally(() => mounted && setLoading(false));
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  useEffect(() => {
+    void reloadTasks();
+  }, [reloadTasks]);
+
+  const onMove = async (taskIdToMove: string, status: TaskStatus) => {
+    const before = tasks.find((t) => t.id === taskIdToMove);
+    if (!before || before.status === status) return;
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskIdToMove ? { ...t, status } : t)),
+    );
+    try {
+      await tasksApi.update(taskIdToMove, { status });
+      void reloadActivity();
+    } catch {
+      toast.push('Could not move task', 'error');
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskIdToMove ? { ...t, status: before.status } : t)),
+      );
+    }
+  };
+
+  const filteredTasks = useMemo(() => {
+    // server already filtered; for the local q in case server skipped it
+    if (!filters.q) return tasks;
+    const q = filters.q.toLowerCase();
+    return tasks.filter(
+      (t) =>
+        t.title.toLowerCase().includes(q) ||
+        (t.description ?? '').toLowerCase().includes(q),
+    );
+  }, [tasks, filters.q]);
+
+  if (loading && !project) {
+    return (
+      <div className="flex flex-1 items-center justify-center text-sm text-ink-muted">
+        <Spinner /> <span className="ml-2">Loading project…</span>
+      </div>
+    );
   }
 
-  async function onChangeStatus(task: Task, status: TaskStatus) {
-    await tasksApi.update(task.id, { status });
-    await reload();
+  if (!project) {
+    return (
+      <div className="flex flex-1 items-center justify-center text-sm text-ink-muted">
+        Project not found.{' '}
+        <Link to="/projects" className="ml-2 underline">
+          Back
+        </Link>
+      </div>
+    );
   }
-
-  async function onDeleteTask(task: Task) {
-    if (!confirm(`Delete task "${task.title}"?`)) return;
-    await tasksApi.remove(task.id);
-    if (selectedTask?.id === task.id) setSelectedTask(null);
-    await reload();
-  }
-
-  if (!project) return <p className="text-slate-500">Loading…</p>;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <Link to="/projects" className="text-sm text-slate-500 hover:underline">
-          &larr; Projects
-        </Link>
-        <h1 className="mt-1 text-2xl font-semibold">{project.name}</h1>
-        {project.description && (
-          <p className="text-sm text-slate-500">{project.description}</p>
+    <>
+      <Topbar
+        crumbs={[
+          { label: 'Projects', href: '/projects' },
+          { label: project.name },
+        ]}
+        search={{
+          value: filters.q,
+          onChange: (v) => setFilters({ ...filters, q: v }),
+          placeholder: 'Filter tasks…',
+        }}
+        right={
+          <button onClick={() => setNewTaskFor('TODO')} className="btn-accent">
+            <Icon.Plus size={14} /> New task
+          </button>
+        }
+      />
+
+      <div className="flex items-end justify-between border-b border-line bg-paper/60 px-5 pt-4 pb-0">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="kbd font-mono uppercase">{project.key}</span>
+            {project.description && (
+              <span className="text-xs text-ink-muted">{project.description}</span>
+            )}
+          </div>
+          <h1 className="font-display text-2xl font-semibold text-ink">
+            {project.name}
+          </h1>
+        </div>
+        <nav className="flex items-center gap-2">
+          <ViewTab active={view === 'board'} onClick={() => setView('board')}>
+            <Icon.Board size={14} /> Board
+          </ViewTab>
+          <ViewTab active={view === 'list'} onClick={() => setView('list')}>
+            <Icon.List size={14} /> List
+          </ViewTab>
+          <ViewTab active={view === 'activity'} onClick={() => setView('activity')}>
+            <Icon.Activity size={14} /> Activity
+          </ViewTab>
+        </nav>
+      </div>
+
+      {view !== 'activity' && (
+        <Filters
+          filters={filters}
+          onChange={setFilters}
+          users={users}
+          labels={labels}
+        />
+      )}
+
+      <div className="flex min-h-0 flex-1 flex-col">
+        {view === 'board' && (
+          <Board
+            tasks={filteredTasks}
+            projectKey={project.key}
+            onOpen={(t) => setTaskId(t)}
+            onMove={onMove}
+            onQuickAdd={(s) => setNewTaskFor(s)}
+          />
+        )}
+        {view === 'list' && (
+          <TaskListView
+            tasks={filteredTasks}
+            projectKey={project.key}
+            onOpen={(t) => setTaskId(t)}
+          />
+        )}
+        {view === 'activity' && (
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            <div className="mx-auto max-w-2xl rounded-lg border border-line bg-surface p-4 shadow-card">
+              <ActivityFeed
+                events={activities}
+                users={users}
+                labels={labels}
+                showTaskRef
+                projectKey={project.key}
+                empty="No activity in this project yet."
+              />
+            </div>
+          </div>
         )}
       </div>
 
-      <form onSubmit={onCreateTask} className="card flex flex-wrap gap-2">
-        <input
-          className="input flex-1"
-          placeholder="Task title"
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          required
-          minLength={2}
-        />
-        <select
-          className="input w-32"
-          value={newPriority}
-          onChange={(e) => setNewPriority(e.target.value as TaskPriority)}
-        >
-          {PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-        <select
-          className="input w-44"
-          value={newAssignee}
-          onChange={(e) => setNewAssignee(e.target.value)}
-        >
-          <option value="">Unassigned</option>
-          {users.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.name}
-            </option>
-          ))}
-        </select>
-        <button className="btn-primary">Add task</button>
-      </form>
+      <TaskDrawer
+        taskId={taskId}
+        projectKey={project.key}
+        users={users}
+        labels={labels}
+        onClose={() => setTaskId(null)}
+        onChanged={() => {
+          void reloadTasks();
+          void reloadActivity();
+        }}
+        onLabelsChanged={() => void reloadCore()}
+      />
 
-      <div className="grid gap-4 md:grid-cols-3">
-        {STATUSES.map((status) => (
-          <div key={status} className="space-y-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {status}
-            </h2>
-            {tasks
-              .filter((t) => t.status === status)
-              .map((t) => (
-                <div key={t.id} className="card space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <button
-                      className="text-left font-medium hover:underline"
-                      onClick={() => setSelectedTask(t)}
-                    >
-                      {t.title}
-                    </button>
-                    <span className="text-xs text-slate-500">{t.priority}</span>
-                  </div>
-                  {t.assignee && (
-                    <p className="text-xs text-slate-500">@ {t.assignee.name}</p>
-                  )}
-                  <div className="flex gap-1">
-                    {STATUSES.filter((s) => s !== t.status).map((s) => (
-                      <button
-                        key={s}
-                        className="btn-secondary text-xs"
-                        onClick={() => void onChangeStatus(t, s)}
-                      >
-                        → {s}
-                      </button>
-                    ))}
-                    <button
-                      className="btn-danger text-xs"
-                      onClick={() => void onDeleteTask(t)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                </div>
-              ))}
-          </div>
-        ))}
-      </div>
-
-      {selectedTask && (
-        <TaskPanel
-          task={selectedTask}
-          onClose={() => setSelectedTask(null)}
-        />
-      )}
-    </div>
+      <NewTaskDialog
+        open={newTaskFor !== null}
+        onClose={() => setNewTaskFor(null)}
+        defaultStatus={newTaskFor ?? 'TODO'}
+        projectId={project.id}
+        users={users}
+        labels={labels}
+        onCreated={() => {
+          void reloadTasks();
+          void reloadActivity();
+        }}
+      />
+    </>
   );
 }
 
-function TaskPanel({ task, onClose }: { task: Task; onClose: () => void }) {
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [body, setBody] = useState('');
-
-  async function reload() {
-    const { data } = await commentsApi.list(task.id);
-    setComments(data);
-  }
-
-  useEffect(() => {
-    void reload();
-  }, [task.id]);
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!body.trim()) return;
-    await commentsApi.create(task.id, body.trim());
-    setBody('');
-    await reload();
-  }
-
+function ViewTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="card space-y-3">
-      <div className="flex items-start justify-between">
-        <div>
-          <h3 className="font-semibold">{task.title}</h3>
-          {task.description && (
-            <p className="mt-1 text-sm text-slate-600">{task.description}</p>
-          )}
-        </div>
-        <button className="btn-secondary text-xs" onClick={onClose}>
-          Close
-        </button>
-      </div>
-
-      <div>
-        <h4 className="mb-2 text-sm font-semibold">Comments</h4>
-        <ul className="space-y-2">
-          {comments.map((c) => (
-            <li key={c.id} className="rounded bg-slate-50 p-2 text-sm">
-              <div className="text-xs text-slate-500">
-                {c.author?.name ?? 'Unknown'} · {new Date(c.createdAt).toLocaleString()}
-              </div>
-              {c.body}
-            </li>
-          ))}
-          {comments.length === 0 && (
-            <li className="text-sm text-slate-500">No comments yet.</li>
-          )}
-        </ul>
-      </div>
-
-      <form onSubmit={onSubmit} className="flex gap-2">
-        <input
-          className="input"
-          placeholder="Add a comment…"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-        />
-        <button className="btn-primary">Send</button>
-      </form>
-    </div>
+    <button
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition',
+        active
+          ? 'bg-surface text-ink shadow-card ring-1 ring-line'
+          : 'text-ink-muted hover:bg-surface-sunken hover:text-ink',
+      )}
+    >
+      {children}
+    </button>
   );
 }

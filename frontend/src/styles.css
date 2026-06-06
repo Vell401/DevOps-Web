@@ -2,23 +2,123 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    font-family: 'Geist', 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-feature-settings: 'cv11', 'ss01', 'ss02';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: theme('colors.sun.200');
+    color: theme('colors.ink.DEFAULT');
+  }
+
+  /* tighter native form rings */
+  *:focus {
+    outline: none;
+  }
+}
+
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium transition;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition focus-visible:shadow-focus;
   }
   .btn-primary {
-    @apply btn bg-slate-900 text-white hover:bg-slate-700;
+    @apply btn bg-ink text-paper hover:bg-ink/90 active:bg-ink;
+  }
+  .btn-accent {
+    @apply btn bg-sun-300 text-ink hover:bg-sun-200 border border-sun-400/40;
+  }
+  .btn-ghost {
+    @apply btn text-ink-muted hover:bg-surface-sunken hover:text-ink;
   }
   .btn-secondary {
-    @apply btn bg-slate-100 text-slate-900 hover:bg-slate-200;
+    @apply btn border border-line bg-surface text-ink hover:bg-surface-sunken;
   }
   .btn-danger {
-    @apply btn bg-red-600 text-white hover:bg-red-700;
+    @apply btn border border-chip-red text-[#9F2A20] hover:bg-chip-red/40;
   }
   .input {
-    @apply w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none;
+    @apply w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-ink-muted focus-visible:shadow-focus;
+  }
+  .input-flush {
+    @apply w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 text-sm text-ink placeholder:text-ink-subtle hover:bg-surface-sunken focus:border-line focus:bg-surface focus-visible:shadow-focus;
   }
   .card {
-    @apply rounded-lg border border-slate-200 bg-white p-4 shadow-sm;
+    @apply rounded-lg border border-line bg-surface shadow-card;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] font-medium leading-none;
+  }
+  .kbd {
+    @apply inline-flex h-5 min-w-[20px] items-center justify-center rounded-sm border border-line bg-surface-sunken px-1 font-mono text-[10px] text-ink-muted;
+  }
+  .tab {
+    @apply relative inline-flex items-center gap-1.5 px-2 py-2 text-sm text-ink-muted hover:text-ink;
+  }
+  .tab-active {
+    @apply text-ink after:absolute after:inset-x-0 after:-bottom-px after:h-[2px] after:bg-ink;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: theme('colors.line.strong');
+    border-radius: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Highlighter — yellow underline-style emphasis, Notion-callout vibe */
+  .text-mark {
+    background-image: linear-gradient(
+      to right,
+      theme('colors.sun.200') 0%,
+      theme('colors.sun.200') 100%
+    );
+    background-size: 100% 38%;
+    background-repeat: no-repeat;
+    background-position: 0 90%;
+    padding: 0 2px;
+  }
+  .text-mark-leaf {
+    background-image: linear-gradient(
+      to right,
+      theme('colors.leaf.200') 0%,
+      theme('colors.leaf.200') 100%
+    );
+    background-size: 100% 38%;
+    background-repeat: no-repeat;
+    background-position: 0 90%;
+    padding: 0 2px;
+  }
+
+  /* Subtle paper noise */
+  .bg-noise {
+    background-image:
+      radial-gradient(rgba(60, 55, 50, 0.04) 1px, transparent 1px),
+      radial-gradient(rgba(60, 55, 50, 0.03) 1px, transparent 1px);
+    background-size: 24px 24px, 16px 16px;
+    background-position: 0 0, 12px 12px;
   }
 }

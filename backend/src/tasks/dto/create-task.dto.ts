@@ -1,7 +1,10 @@
 import { TaskPriority, TaskStatus } from '@prisma/client';
 import {
+  ArrayUnique,
+  IsArray,
   IsDateString,
   IsEnum,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -17,7 +20,7 @@ export class CreateTaskDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(5000)
+  @MaxLength(10000)
   description?: string;
 
   @IsOptional()
@@ -35,4 +38,18 @@ export class CreateTaskDto {
   @IsOptional()
   @IsUUID()
   assigneeId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  parentId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  position?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID(undefined, { each: true })
+  labelIds?: string[];
 }

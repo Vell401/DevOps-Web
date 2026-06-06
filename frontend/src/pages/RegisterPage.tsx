@@ -1,6 +1,8 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { Spinner } from '../ui/Spinner';
+import { AuthSplit } from './AuthSplit';
 
 export function RegisterPage() {
   const { register } = useAuth();
@@ -19,52 +21,87 @@ export function RegisterPage() {
       await register(email, name, password);
       navigate('/projects');
     } catch {
-      setError('Could not register — email may already be in use');
+      setError('Could not register. Email may already be in use.');
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="mx-auto mt-20 max-w-sm">
-      <h1 className="mb-4 text-2xl font-semibold">Create account</h1>
-      <form onSubmit={onSubmit} className="card space-y-3">
-        <input
-          className="input"
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <input
-          className="input"
-          placeholder="Display name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-          minLength={2}
-        />
-        <input
-          className="input"
-          type="password"
-          placeholder="Password (min 8 chars)"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={8}
-        />
-        {error && <p className="text-sm text-red-600">{error}</p>}
+    <AuthSplit>
+      <div className="mb-6">
+        <p className="text-xs font-medium uppercase tracking-[0.18em] text-ink-subtle">
+          Get started
+        </p>
+        <h1 className="mt-2 font-display text-3xl font-semibold leading-tight text-ink">
+          Create an <span className="text-mark-leaf">account</span>
+        </h1>
+        <p className="mt-2 text-sm text-ink-muted">
+          A workspace for your tasks, comments and history. Yours, quickly.
+        </p>
+      </div>
+
+      <form onSubmit={onSubmit} className="space-y-3">
+        <Field label="Display name">
+          <input
+            className="input"
+            placeholder="Anna Petrova"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            minLength={2}
+          />
+        </Field>
+        <Field label="Email">
+          <input
+            className="input"
+            type="email"
+            placeholder="you@company.com"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="Password">
+          <input
+            className="input"
+            type="password"
+            placeholder="At least 8 characters"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={8}
+          />
+        </Field>
+        {error && (
+          <p className="rounded-md border border-chip-red bg-chip-red/40 px-3 py-2 text-sm text-[#883128]">
+            {error}
+          </p>
+        )}
         <button className="btn-primary w-full" disabled={busy}>
-          {busy ? 'Creating…' : 'Create account'}
+          {busy && <Spinner className="border-paper border-t-paper/40" />}
+          Create account
         </button>
-        <p className="text-center text-sm text-slate-500">
-          Already registered?{' '}
-          <Link to="/login" className="text-slate-900 underline">
+        <p className="pt-2 text-center text-sm text-ink-muted">
+          Already have an account?{' '}
+          <Link to="/login" className="font-medium text-ink underline-offset-2 hover:underline">
             Sign in
           </Link>
         </p>
       </form>
-    </div>
+    </AuthSplit>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-ink-subtle">
+        {label}
+      </span>
+      {children}
+    </label>
   );
 }

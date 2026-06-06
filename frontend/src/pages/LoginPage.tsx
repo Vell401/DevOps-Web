@@ -1,6 +1,8 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { Spinner } from '../ui/Spinner';
+import { AuthSplit } from './AuthSplit';
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -18,43 +20,84 @@ export function LoginPage() {
       await login(email, password);
       navigate('/projects');
     } catch {
-      setError('Invalid credentials');
+      setError('Email or password is incorrect.');
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="mx-auto mt-20 max-w-sm">
-      <h1 className="mb-4 text-2xl font-semibold">Sign in</h1>
-      <form onSubmit={onSubmit} className="card space-y-3">
-        <input
-          className="input"
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <input
-          className="input"
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-        {error && <p className="text-sm text-red-600">{error}</p>}
+    <AuthSplit>
+      <div className="mb-6">
+        <p className="text-xs font-medium uppercase tracking-[0.18em] text-ink-subtle">
+          Welcome back
+        </p>
+        <h1 className="mt-2 font-display text-3xl font-semibold leading-tight text-ink">
+          Sign in to <span className="text-mark">tracker</span>
+        </h1>
+        <p className="mt-2 text-sm text-ink-muted">
+          Pick up where you left off. The board misses you.
+        </p>
+      </div>
+
+      <form onSubmit={onSubmit} className="space-y-3">
+        <Field label="Email">
+          <input
+            className="input"
+            type="email"
+            placeholder="you@company.com"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="Password">
+          <input
+            className="input"
+            type="password"
+            placeholder="••••••••"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </Field>
+        {error && (
+          <p className="rounded-md border border-chip-red bg-chip-red/40 px-3 py-2 text-sm text-[#883128]">
+            {error}
+          </p>
+        )}
         <button className="btn-primary w-full" disabled={busy}>
-          {busy ? 'Signing in…' : 'Sign in'}
+          {busy && <Spinner className="border-paper border-t-paper/40" />}
+          Sign in
         </button>
-        <p className="text-center text-sm text-slate-500">
+        <p className="pt-2 text-center text-sm text-ink-muted">
           No account?{' '}
-          <Link to="/register" className="text-slate-900 underline">
-            Register
+          <Link to="/register" className="font-medium text-ink underline-offset-2 hover:underline">
+            Create one
           </Link>
         </p>
       </form>
-    </div>
+
+      <div className="mt-8 rounded-lg border border-line bg-surface p-4 text-xs text-ink-muted">
+        <span className="font-medium text-ink">Demo accounts</span> · password{' '}
+        <code className="kbd">12345678</code>
+        <div className="mt-1.5 font-mono text-[11px] text-ink-muted">
+          1@1.com · 2@2.com · 3@3.com
+        </div>
+      </div>
+    </AuthSplit>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-ink-subtle">
+        {label}
+      </span>
+      {children}
+    </label>
   );
 }

@@ -13,6 +13,8 @@ import { UsersModule } from './users/users.module';
 import { ProjectsModule } from './projects/projects.module';
 import { TasksModule } from './tasks/tasks.module';
 import { CommentsModule } from './comments/comments.module';
+import { LabelsModule } from './labels/labels.module';
+import { ActivityModule } from './activity/activity.module';
 
 @Module({
   imports: [
@@ -24,7 +26,7 @@ import { CommentsModule } from './comments/comments.module';
       useFactory: (cfg: AppConfigService) => ({
         pinoHttp: {
           level: cfg.logLevel,
-          transport: undefined, // Отключено для стабильности в Docker
+          transport: undefined,
           redact: ['req.headers.authorization', 'req.headers.cookie'],
         },
       }),
@@ -43,6 +45,8 @@ import { CommentsModule } from './comments/comments.module';
     ProjectsModule,
     TasksModule,
     CommentsModule,
+    LabelsModule,
+    ActivityModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

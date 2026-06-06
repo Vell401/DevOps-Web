@@ -1,34 +1,98 @@
-export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
-export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH';
+export type TaskStatus =
+  | 'BACKLOG'
+  | 'TODO'
+  | 'IN_PROGRESS'
+  | 'IN_REVIEW'
+  | 'BLOCKED'
+  | 'DONE';
+
+export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+
+export type LabelColor =
+  | 'GRAY'
+  | 'BROWN'
+  | 'ORANGE'
+  | 'YELLOW'
+  | 'GREEN'
+  | 'BLUE'
+  | 'PURPLE'
+  | 'PINK'
+  | 'RED';
+
+export type ActivityType =
+  | 'CREATED'
+  | 'STATUS_CHANGED'
+  | 'ASSIGNEE_CHANGED'
+  | 'PRIORITY_CHANGED'
+  | 'TITLE_CHANGED'
+  | 'DESCRIPTION_CHANGED'
+  | 'DUE_DATE_CHANGED'
+  | 'LABEL_ADDED'
+  | 'LABEL_REMOVED'
+  | 'PARENT_CHANGED'
+  | 'COMMENT_ADDED';
 
 export interface User {
   id: string;
   email: string;
   name: string;
+  avatarColor?: string;
   createdAt: string;
+}
+
+export interface UserLite {
+  id: string;
+  name: string;
+  email: string;
+  avatarColor?: string;
 }
 
 export interface Project {
   id: string;
+  key: string;
   name: string;
   description: string | null;
   ownerId: string;
+  taskCounter: number;
   createdAt: string;
   updatedAt: string;
+  stats?: { total: number; done: number };
+}
+
+export interface Label {
+  id: string;
+  name: string;
+  color: LabelColor;
+  projectId: string;
+  createdAt: string;
+}
+
+export interface TaskRef {
+  id: string;
+  number: number;
+  title: string;
 }
 
 export interface Task {
   id: string;
+  number: number;
   title: string;
   description: string | null;
   status: TaskStatus;
   priority: TaskPriority;
+  position: number;
   dueDate: string | null;
   projectId: string;
   assigneeId: string | null;
-  assignee?: { id: string; name: string; email: string } | null;
+  assignee?: UserLite | null;
+  parentId: string | null;
+  parent?: TaskRef | null;
+  labels: Label[];
+  _count?: { subtasks: number; comments: number };
+  subtasks?: Task[];
   createdAt: string;
   updatedAt: string;
+  project?: { id: string; key: string; name: string; ownerId: string };
 }
 
 export interface Comment {
@@ -36,6 +100,19 @@ export interface Comment {
   body: string;
   taskId: string;
   authorId: string;
-  author?: { id: string; name: string; email: string };
+  author?: UserLite;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface Activity {
+  id: string;
+  taskId: string;
+  actorId: string;
+  actor?: UserLite;
+  type: ActivityType;
+  fromValue: string | null;
+  toValue: string | null;
+  createdAt: string;
+  task?: { id: string; title: string; number: number };
 }
