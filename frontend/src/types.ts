@@ -37,7 +37,23 @@ export interface User {
   email: string;
   name: string;
   avatarColor?: string;
+  isAdmin?: boolean;
   createdAt: string;
+}
+
+export interface AdminUser extends User {
+  updatedAt: string;
+  stats: { projects: number; tasks: number; comments: number };
+}
+
+export interface AdminStats {
+  users: number;
+  admins: number;
+  projects: number;
+  tasks: number;
+  comments: number;
+  tasksByStatus: { status: TaskStatus; count: number }[];
+  recentSignups: Pick<User, 'id' | 'email' | 'name' | 'avatarColor' | 'createdAt'>[];
 }
 
 export interface UserLite {

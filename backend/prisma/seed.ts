@@ -9,16 +9,44 @@ import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
-const TEST_PASSWORD = '12345678';
+// Seed passwords MUST come from env vars. No defaults — we don't want the
+// repo to leak known credentials, and we don't want anyone running `seed`
+// to accidentally create well-known accounts.
+//
+// In prod: workflow writes them into /opt/tracker/.env from GitHub Secrets
+//   SEED_ADMIN_PASSWORD, SEED_TEST_PASSWORD.
+// Locally: put them in your own .env (gitignored) or export before running seed.
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD;
+const TEST_PASSWORD = process.env.SEED_TEST_PASSWORD;
 
-const TEST_USERS = [
-  { email: '1@1.com', name: 'Anya Petrova', avatarColor: 'green' },
-  { email: '2@2.com', name: 'Mark Sokolov', avatarColor: 'orange' },
-  { email: '3@3.com', name: 'Lena Volkova', avatarColor: 'purple' },
+if (!ADMIN_PASSWORD || !TEST_PASSWORD) {
+  console.error(
+    '\n[seed] SEED_ADMIN_PASSWORD and SEED_TEST_PASSWORD must be set.\n' +
+      '  In prod they come from GitHub Secrets (written to .env on deploy).\n' +
+      '  Locally:  export SEED_ADMIN_PASSWORD=...  export SEED_TEST_PASSWORD=...\n',
+  );
+  process.exit(1);
+}
+
+const SEED_USERS = [
+  {
+    email: 'admin@tracker.local',
+    name: 'Admin',
+    avatarColor: 'purple',
+    password: ADMIN_PASSWORD,
+    isAdmin: true,
+  },
+  {
+    email: 'test@tracker.local',
+    name: 'Test User',
+    avatarColor: 'green',
+    password: TEST_PASSWORD,
+    isAdmin: false,
+  },
 ];
 
 async function clearExisting() {
-  // Idempotent reseed for the seeded demo project — keeps test users.
+  // Idempotent reseed for demo content — keeps the two seed users.
   await prisma.activity.deleteMany({});
   await prisma.comment.deleteMany({});
   await prisma.task.deleteMany({});
@@ -27,23 +55,28 @@ async function clearExisting() {
 }
 
 async function main() {
-  const passwordHash = await bcrypt.hash(TEST_PASSWORD, 12);
-
   const users = await Promise.all(
-    TEST_USERS.map((u) =>
-      prisma.user.upsert({
+    SEED_USERS.map(async (u) => {
+      const passwordHash = await bcrypt.hash(u.password, 12);
+      return prisma.user.upsert({
         where: { email: u.email },
-        update: { name: u.name, avatarColor: u.avatarColor },
+        update: {
+          name: u.name,
+          avatarColor: u.avatarColor,
+          passwordHash,
+          isAdmin: u.isAdmin,
+        },
         create: {
           email: u.email,
           name: u.name,
           passwordHash,
           avatarColor: u.avatarColor,
+          isAdmin: u.isAdmin,
         },
-      }),
-    ),
+      });
+    }),
   );
-  const [anya, mark, lena] = users;
+  const [admin, test] = users;
 
   await clearExisting();
 
@@ -52,7 +85,7 @@ async function main() {
       key: 'PLAT',
       name: 'Platform DevOps',
       description: 'Infrastructure, CI/CD and observability for the product team.',
-      ownerId: anya.id,
+      ownerId: admin.id,
     },
   });
 
@@ -61,7 +94,7 @@ async function main() {
       key: 'CUST',
       name: 'Customer Portal',
       description: 'Self-serve area where customers manage subscriptions.',
-      ownerId: anya.id,
+      ownerId: admin.id,
     },
   });
 
@@ -104,7 +137,7 @@ async function main() {
         'Move all Jenkins jobs to GitHub Actions, parametrise runners, cache deps. Reduce build time by 40%.',
       status: TaskStatus.IN_PROGRESS,
       priority: TaskPriority.HIGH,
-      assigneeId: anya.id,
+      assigneeId: admin.id,
       project: platform,
       labels: ['ci/cd', 'infra'],
       subtasks: [
@@ -112,21 +145,21 @@ async function main() {
           title: 'Audit existing Jenkins jobs',
           status: TaskStatus.DONE,
           priority: TaskPriority.MEDIUM,
-          assigneeId: anya.id,
+          assigneeId: admin.id,
           labels: ['ci/cd'],
         },
         {
           title: 'Bootstrap reusable Actions workflows',
           status: TaskStatus.IN_PROGRESS,
           priority: TaskPriority.HIGH,
-          assigneeId: anya.id,
+          assigneeId: admin.id,
           labels: ['ci/cd'],
         },
         {
           title: 'Document migration runbook',
           status: TaskStatus.TODO,
           priority: TaskPriority.LOW,
-          assigneeId: lena.id,
+          assigneeId: test.id,
           labels: ['docs'],
         },
       ],
@@ -136,7 +169,7 @@ async function main() {
       description: 'Provision EKS with autoscaling, ingress and Cert-manager.',
       status: TaskStatus.TODO,
       priority: TaskPriority.HIGH,
-      assigneeId: mark.id,
+      assigneeId: test.id,
       project: platform,
       labels: ['infra'],
     },
@@ -145,7 +178,7 @@ async function main() {
       description: 'Replace ELK with Loki for cost; keep Grafana dashboards.',
       status: TaskStatus.IN_REVIEW,
       priority: TaskPriority.MEDIUM,
-      assigneeId: lena.id,
+      assigneeId: test.id,
       project: platform,
       labels: ['observability'],
     },
@@ -154,7 +187,7 @@ async function main() {
       description: 'Critical container CVE; bump base image and re-test.',
       status: TaskStatus.BLOCKED,
       priority: TaskPriority.URGENT,
-      assigneeId: anya.id,
+      assigneeId: admin.id,
       project: platform,
       labels: ['security', 'infra'],
     },
@@ -171,7 +204,7 @@ async function main() {
       title: 'Decommission old monitoring stack',
       status: TaskStatus.DONE,
       priority: TaskPriority.LOW,
-      assigneeId: lena.id,
+      assigneeId: test.id,
       project: platform,
       labels: ['observability'],
     },
@@ -183,7 +216,7 @@ async function main() {
       description: 'Allow users to upgrade, pause and cancel from one screen.',
       status: TaskStatus.IN_PROGRESS,
       priority: TaskPriority.HIGH,
-      assigneeId: mark.id,
+      assigneeId: admin.id,
       project: customers,
       labels: ['feature', 'frontend'],
       subtasks: [
@@ -191,14 +224,14 @@ async function main() {
           title: 'Design upgrade flow mockups',
           status: TaskStatus.DONE,
           priority: TaskPriority.MEDIUM,
-          assigneeId: lena.id,
+          assigneeId: test.id,
           labels: ['frontend'],
         },
         {
           title: 'Implement billing API endpoints',
           status: TaskStatus.IN_PROGRESS,
           priority: TaskPriority.HIGH,
-          assigneeId: anya.id,
+          assigneeId: admin.id,
           labels: ['backend'],
         },
       ],
@@ -208,7 +241,7 @@ async function main() {
       description: 'Page crashes when user has zero invoices.',
       status: TaskStatus.TODO,
       priority: TaskPriority.HIGH,
-      assigneeId: mark.id,
+      assigneeId: test.id,
       project: customers,
       labels: ['bug', 'frontend'],
     },
@@ -224,7 +257,7 @@ async function main() {
       title: 'Migrate Stripe webhooks to v2',
       status: TaskStatus.IN_REVIEW,
       priority: TaskPriority.MEDIUM,
-      assigneeId: anya.id,
+      assigneeId: admin.id,
       project: customers,
       labels: ['backend'],
     },
@@ -232,7 +265,7 @@ async function main() {
       title: 'Onboarding tour for first-time users',
       status: TaskStatus.DONE,
       priority: TaskPriority.LOW,
-      assigneeId: lena.id,
+      assigneeId: test.id,
       project: customers,
       labels: ['feature', 'frontend'],
     },
@@ -265,7 +298,7 @@ async function main() {
     await prisma.activity.create({
       data: {
         taskId: task.id,
-        actorId: spec.assigneeId ?? anya.id,
+        actorId: spec.assigneeId ?? admin.id,
         type: ActivityType.CREATED,
       },
     });
@@ -273,7 +306,7 @@ async function main() {
       await prisma.activity.create({
         data: {
           taskId: task.id,
-          actorId: spec.assigneeId ?? anya.id,
+          actorId: spec.assigneeId ?? admin.id,
           type: ActivityType.STATUS_CHANGED,
           fromValue: TaskStatus.TODO,
           toValue: spec.status,
@@ -313,13 +346,13 @@ async function main() {
       data: {
         body: 'Kicking this off — pipeline draft is in the runbooks branch.',
         taskId: firstTask.id,
-        authorId: anya.id,
+        authorId: admin.id,
       },
     });
     await prisma.activity.create({
       data: {
         taskId: firstTask.id,
-        actorId: anya.id,
+        actorId: admin.id,
         type: ActivityType.COMMENT_ADDED,
         toValue: 'Kicking this off — pipeline draft is in the runbooks branch.',
       },
@@ -328,13 +361,13 @@ async function main() {
       data: {
         body: 'Reviewed the caching strategy, looks solid. +1',
         taskId: firstTask.id,
-        authorId: mark.id,
+        authorId: test.id,
       },
     });
     await prisma.activity.create({
       data: {
         taskId: firstTask.id,
-        actorId: mark.id,
+        actorId: test.id,
         type: ActivityType.COMMENT_ADDED,
         toValue: 'Reviewed the caching strategy, looks solid. +1',
       },
@@ -342,7 +375,9 @@ async function main() {
   }
 
   console.log(
-    `Seeded: ${platform.key}, ${customers.key}; users ${TEST_USERS.map((u) => u.email).join(', ')} (password: ${TEST_PASSWORD})`,
+    `Seeded: projects ${platform.key} + ${customers.key}; ` +
+    `users: admin@tracker.local (admin), test@tracker.local (regular). ` +
+    `Passwords from SEED_ADMIN_PASSWORD / SEED_TEST_PASSWORD env.`,
   );
 }
 

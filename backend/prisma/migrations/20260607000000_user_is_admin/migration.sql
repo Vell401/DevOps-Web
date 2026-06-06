@@ -1,0 +1,3 @@
+-- Add isAdmin flag to User. Existing users default to false; first admin is
+-- created or promoted by the seed (admin@tracker.local) or via UPDATE …
+ALTER TABLE "User" ADD COLUMN "isAdmin" BOOLEAN NOT NULL DEFAULT false;

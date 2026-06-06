@@ -6,3 +6,16 @@ backend/*.log
 backend/.vscode/
 backend/.idea/
 node_modules/
+
+# Local env files. Only .env.example is committed; copy it to .env for local dev.
+.env
+.env.local
+.env.*.local
+frontend/.env
+frontend/.env.local
+
+# Editor/OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

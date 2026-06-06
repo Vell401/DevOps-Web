@@ -57,6 +57,7 @@ model User {
   passwordHash  String
   name          String
   avatarColor   String         @default("gray")
+  isAdmin       Boolean        @default(false)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 

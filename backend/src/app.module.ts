@@ -15,6 +15,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { CommentsModule } from './comments/comments.module';
 import { LabelsModule } from './labels/labels.module';
 import { ActivityModule } from './activity/activity.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { ActivityModule } from './activity/activity.module';
     CommentsModule,
     LabelsModule,
     ActivityModule,
+    AdminModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

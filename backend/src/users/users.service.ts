@@ -6,6 +6,7 @@ const PUBLIC_USER_SELECT = {
   email: true,
   name: true,
   avatarColor: true,
+  isAdmin: true,
   createdAt: true,
 } as const;
 

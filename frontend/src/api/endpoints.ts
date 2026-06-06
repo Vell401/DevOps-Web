@@ -1,6 +1,8 @@
 import { api } from './client';
 import type {
   Activity,
+  AdminStats,
+  AdminUser,
   Comment,
   Label,
   LabelColor,
@@ -96,4 +98,18 @@ export const labelsApi = {
 
 export const usersApi = {
   list: () => api.get<UserLite[]>('/users'),
+};
+
+export interface AdminUpdateUserBody {
+  name?: string;
+  isAdmin?: boolean;
+  newPassword?: string;
+}
+
+export const adminApi = {
+  stats: () => api.get<AdminStats>('/admin/stats'),
+  listUsers: () => api.get<AdminUser[]>('/admin/users'),
+  updateUser: (id: string, body: AdminUpdateUserBody) =>
+    api.patch<AdminUser>(`/admin/users/${id}`, body),
+  deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
 };

@@ -1,7 +1,11 @@
 # CI — lint + tests for both backend and frontend.
 # Runs on:
-#   - pull requests targeting main or dev
-#   - direct pushes to main and dev (gives green/red marker independent of dev-cd.yml)
+#   - pull requests targeting main or dev (gate before merge)
+#   - direct pushes to main (in case main is deployed separately)
+#
+# IMPORTANT: pushes to `dev` are NOT triggered here — dev-cd.yml has its own
+# test job as the first step of the deploy pipeline, so running ci.yml on dev
+# push would just duplicate the same work and waste runner minutes.
 #
 # Always runs on GitHub-hosted ubuntu-latest (never on the self-hosted VM), so a
 # malicious PR cannot reach the deploy machine. Fork PRs are governed by the
@@ -12,7 +16,7 @@ on:
   pull_request:
     branches: [main, dev]
   push:
-    branches: [main, dev]
+    branches: [main]
 
 permissions:
   contents: read

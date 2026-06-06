@@ -38,6 +38,8 @@ VM не имеет публичного IP. Runner — единственная 
 - [ ] `JWT_ACCESS_SECRET` — вывод `openssl rand -base64 48`
 - [ ] `JWT_REFRESH_SECRET` — ещё один `openssl rand -base64 48`
 - [ ] `CORS_ORIGINS` — `http://<IP_VM>` (узнаешь после шага 1)
+- [ ] `SEED_ADMIN_PASSWORD` — пароль для seeded admin@tracker.local (любая длинная строка)
+- [ ] `SEED_TEST_PASSWORD` — пароль для seeded test@tracker.local
 
 ### Variables (Settings → Secrets and variables → Actions → Variables) — опционально
 
@@ -191,7 +193,7 @@ Runner автоматически перезапустится при ребут
 
 Запушь в `dev`. Pipeline запустится.
 
-Смотреть логи:
+Смотреть логи раннера на VM:
 
 ```bash
 sudo journalctl -u 'actions.runner.*' -f
@@ -207,23 +209,233 @@ sudo -iu deploy docker ps
 # postgres, redis, backend, frontend, edge — все Up (healthy)
 
 curl -sS http://localhost/api/health/ready
-# {"status":"ok"}
+# {"status":"ok","info":{"database":{"status":"up"}}, ...}
 ```
 
-Открывай в браузере `http://<IP_VM>/`. Логин — `1@1.com` / `12345678`, если
-зайдёшь под seed-аккаунт (см. ниже).
+### Что произошло автоматически
 
-> **Сид в проде?** Сид удаляет существующие данные. Workflow его НЕ запускает.
-> Один раз руками после первого деплоя:
-> ```bash
-> sudo -iu deploy
-> cd /opt/tracker
-> docker compose -f docker-compose.prod.yml --env-file .env exec backend npm run prisma:seed
-> ```
+Шаг `Run database migrations` в workflow выполняет `npx prisma migrate deploy`
+в одноразовом контейнере **до** того как поднимет основной стэк. Это значит:
+- таблицы (`User`, `Project`, `Task`, …) создаются автоматически;
+- все коммиченные миграции из `backend/prisma/migrations/` применяются;
+- если миграция упала — весь деплой свалился бы красным в Actions UI.
+
+То есть **миграции вручную после первого деплоя запускать не надо**.
+
+### Что нужно сделать вручную один раз — сид
+
+База создана, но **пустая**. Чтобы появились два seeded-аккаунта (admin и test)
+и пара демо-проектов:
+
+```bash
+cd /opt/tracker
+docker compose -f docker-compose.prod.yml --env-file .env exec backend npm run prisma:seed
+```
+
+Пароли seed возьмёт из env-переменных контейнера, которые workflow прописал
+из GitHub Secrets `SEED_ADMIN_PASSWORD` и `SEED_TEST_PASSWORD`. Сам seed их
+нигде не печатает — ты их задал в GitHub-у, ты их и знаешь.
+
+После сида: открой `http://<IP_VM>/login`, войди как `admin@tracker.local` с
+паролем из секрета — у тебя появится пункт **Admin** в сайдбаре.
+
+Workflow специально его не запускает: сид перетирает существующие данные, а в
+проде это не то, что хочется делать на каждом push в `dev`.
+
+**Без сида ты можешь либо вручную зарегистрироваться через UI** (`/register`),
+либо запустить сид и логиниться готовыми аккаунтами. Если регистрация во фронте
+ругается "email may already be in use" — на самом деле это **общий** обработчик
+любой ошибки, истинную причину смотри в логах бэка:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env logs --tail=80 backend
+```
+
+Открывай `http://<IP_VM>/` в браузере и логинься.
 
 ---
 
-## 5. Откат на предыдущую версию
+## 5. Что умеет встроенная админка
+
+Если ты залогинен как пользователь с флагом `isAdmin = true`, в сайдбаре
+появляется пункт **Admin** (`/admin`). На странице:
+
+- **Stats-карточки** — общее число юзеров (+ сколько админов), проектов,
+  задач, комментариев, открытых задач. И разбивка задач по статусам.
+- **Список юзеров** — с количеством их проектов/задач/комментов.
+  - Клик на чип "User" → "Admin" — повышаешь до администратора (и обратно).
+  - Кнопка `Reset pw` → задать новый пароль, открытые сессии этого юзера
+    отзываются (refresh-токены удаляются), он будет вынужден залогиниться
+    снова с новым паролем.
+  - Иконка корзины — удалить (каскадом сносятся его проекты, задачи,
+    комменты).
+- **Recent signups** — последние 5 регистраций.
+
+### Safety net в админ-сервисе
+
+В коде встроены два защитника от самопростреливания:
+1. **Нельзя удалить себя** через админ-панель (UI кнопка disabled + backend
+   тоже отказывает).
+2. **Нельзя демотировать последнего админа** — если в системе остался
+   единственный `isAdmin = true`, бэк не даст снять с него флаг.
+
+### Сделать первого админа после первого деплоя
+
+Workflow создаёт админа только через `npm run prisma:seed`. Если ты по
+какой-то причине НЕ запускал сид (например, регистрировался руками
+через UI), повысить себя до админа можно одной SQL-командой:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env exec -T postgres \
+  psql -U tracker -d tracker -c \
+  "UPDATE \"User\" SET \"isAdmin\" = true WHERE email = 'твой-email@example.com';"
+```
+
+Перелогинься — `/admin` появится в меню.
+
+---
+
+## 5a. Администрирование данных через CLI
+
+Все операции запускаются из `/opt/tracker`. Везде нужен либо root (на dev-VM так
+и есть), либо `sudo -iu deploy bash -c '...'` если хочешь явно от deploy-юзера.
+
+### 5.1 Сделать бэкап перед любой деструктивной операцией
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env exec -T postgres \
+  pg_dump -U tracker -d tracker | gzip > "backup-$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
+```
+
+Файл `backup-…sql.gz` остаётся в текущей директории. Если что-то пойдёт не так,
+восстановление — в секции 6.
+
+### 5.2 Прогнать seed заново
+
+**Заметка:** seed чистит все проекты, задачи, лейблы и комменты, но **оставляет
+пользователей** (это `upsert`). Если ты на демо-данных и хочешь "вернуть как
+было" — это твоя команда.
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env exec backend npm run prisma:seed
+```
+
+Свои пароли для admin/test:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env exec \
+  -e SEED_ADMIN_PASSWORD='длинный-пароль-сюда' \
+  -e SEED_TEST_PASSWORD='другой-пароль' \
+  backend npm run prisma:seed
+```
+
+### 5.3 Полная очистка БД (всё под ноль, включая юзеров)
+
+Если хочешь начать с **абсолютно** чистой базы, как будто только что развернулся:
+
+```bash
+# Сначала бэкап (см. 5.1) — без него восстановить нельзя.
+docker compose -f docker-compose.prod.yml --env-file .env exec -T postgres \
+  psql -U tracker -d tracker <<'SQL'
+TRUNCATE TABLE
+  "Activity",
+  "Comment",
+  "Task",
+  "_TaskLabels",
+  "Label",
+  "Project",
+  "RefreshToken",
+  "User"
+RESTART IDENTITY CASCADE;
+SQL
+```
+
+После этого можно прогнать seed (5.2), чтобы получить admin+test и demo-проекты.
+
+### 5.4 Удалить только задачи и проекты, юзеров оставить
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env exec -T postgres \
+  psql -U tracker -d tracker <<'SQL'
+TRUNCATE TABLE
+  "Activity",
+  "Comment",
+  "Task",
+  "_TaskLabels",
+  "Label",
+  "Project"
+RESTART IDENTITY CASCADE;
+SQL
+```
+
+`RefreshToken` и `User` остаются. Юзеры перелогиниваться не должны (access-токены
+живут 15 минут, refresh — 7 дней, ничего не сломается).
+
+### 5.5 Удалить конкретного пользователя
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env exec -T postgres \
+  psql -U tracker -d tracker -c \
+  "DELETE FROM \"User\" WHERE email = 'кого-удаляем@example.com';"
+```
+
+Каскад в Prisma-схеме снесёт его проекты, задачи (как assignee → `assigneeId`
+станет NULL у чужих задач), комменты, refresh-токены.
+
+### 5.6 Сбросить пароль пользователя
+
+Самый чистый способ — через бэкенд, чтобы получить тот же bcrypt-хэш, что и
+при регистрации. Одной командой:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env exec backend node -e "
+  const bcrypt = require('bcrypt');
+  const { PrismaClient } = require('@prisma/client');
+  const p = new PrismaClient();
+  (async () => {
+    const email = process.argv[1];
+    const password = process.argv[2];
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await p.user.update({ where: { email }, data: { passwordHash } });
+    console.log('Reset password for', user.email);
+    await p.\$disconnect();
+  })();
+" admin@tracker.local 'новый-пароль'
+```
+
+Замени `admin@tracker.local` и `'новый-пароль'` на нужные. Кавычки вокруг
+пароля — обязательно (внутри могут быть спецсимволы).
+
+### 5.7 Посмотреть кто есть в системе
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env exec -T postgres \
+  psql -U tracker -d tracker -c \
+  'SELECT email, name, "createdAt" FROM "User" ORDER BY "createdAt";'
+```
+
+### 5.8 Откатить миграции (опасно)
+
+Откат миграции через Prisma — операция руками. Сценарий: применил миграцию,
+поняли что она кривая, хочешь снести изменения и переделать.
+
+```bash
+# Посмотреть статус миграций
+docker compose -f docker-compose.prod.yml --env-file .env run --rm backend \
+  npx prisma migrate status
+
+# Пометить миграцию как откаченную (Prisma НЕ выполняет SQL отката —
+# down-миграцию надо написать самому или восстановить из бэкапа)
+docker compose -f docker-compose.prod.yml --env-file .env run --rm backend \
+  npx prisma migrate resolve --rolled-back 20260606000000_jira_extensions
+```
+
+В 95% случаев правильнее: **восстановить базу из последнего бэкапа** (см. 6)
+и применить только нужные миграции.
+
+---
+
+## 6. Откат на предыдущую версию
 
 Каждая успешная сборка пушит в Docker Hub тег `sha-<short>`. Чтобы откатиться:
 
@@ -236,9 +448,12 @@ curl -sS http://localhost/api/health/ready
 Workflow пропустит test+build (видит, что тег указан) и сразу пойдёт в deploy
 с этим тегом.
 
+Если откат тебе нужен **из-за** битых данных — сначала восстанови данные из
+бэкапа (секция 7), потом откати код. Иначе старый код встретит новую схему.
+
 ---
 
-## 6. Ночные бэкапы Postgres
+## 7. Ночные бэкапы Postgres
 
 Простой вариант для пет-проекта: cron на VM дампит в `/opt/tracker/backups/`.
 
@@ -280,7 +495,7 @@ docker compose -f docker-compose.prod.yml --env-file .env start backend
 
 ---
 
-## 7. Шпаргалка на каждый день
+## 8. Шпаргалка на каждый день
 
 ```bash
 # Что запущено?
@@ -301,7 +516,7 @@ sudo docker image prune -af
 
 ---
 
-## 8. Ротация пароля БД — важный нюанс
+## 9. Ротация пароля БД — важный нюанс
 
 Postgres инициализирует пароль из `POSTGRES_PASSWORD` **только на первом
 старте**, когда том пустой. Если просто поменять секрет в GitHub и сделать
@@ -323,21 +538,24 @@ docker compose -f docker-compose.prod.yml --env-file .env exec postgres \
 
 ---
 
-## 9. Траблшутинг
+## 10. Траблшутинг
 
 | Симптом | Куда смотреть |
 |---|---|
 | Workflow висит в "Queued" на deploy-job | runner не подобрал задачу — `sudo systemctl status 'actions.runner.*'`, runner должен быть Idle на странице Settings → Actions → Runners и в его лейблах должен быть `dev` |
 | `docker compose pull` пишет "denied" | Docker Hub token протух или репо приватный — обнови `DOCKERHUB_TOKEN` |
 | `prisma migrate deploy` падает с `P3009` | предыдущая миграция упала на полпути — `docker compose exec backend npx prisma migrate resolve --rolled-back <name>`, потом повторить |
+| Регистрация во фронте пишет "email may already be in use" | это generic-обёртка над любой ошибкой; смотри `docker compose logs --tail=80 backend` или `curl -i -X POST http://localhost/api/auth/register -H 'Content-Type: application/json' -d '{...}'` чтобы увидеть реальный код/тело |
+| Логиниться нечем (нет юзеров) | прогнать сид руками: `docker compose -f docker-compose.prod.yml --env-file .env exec backend npm run prisma:seed` |
+| Проверить какие миграции применились | `docker compose -f docker-compose.prod.yml --env-file .env run --rm backend npx prisma migrate status` |
 | Healthcheck не дожидается | `docker compose logs backend` — обычно либо CORS_ORIGINS не совпал, либо DB не поднялась |
 | 502 от edge nginx | контейнер backend нездоров — `docker ps` и `docker compose logs backend` |
 | Браузер режет CORS | `CORS_ORIGINS` не точно соответствует Origin-у в браузере (без слеша в конце) — поправь секрет, передеплой |
-| Бэк не подключается к БД с "password authentication failed" | пароль в `.env` разошёлся с тем, что внутри Postgres-тома — см. секцию 8 |
+| Бэк не подключается к БД с "password authentication failed" | пароль в `.env` разошёлся с тем, что внутри Postgres-тома — см. секцию 9 |
 
 ---
 
-## 10. Добавить prod runner в будущем
+## 11. Добавить prod runner в будущем
 
 Когда поднимешь вторую VM под prod, повторяешь шаги 1-3.1 с одной разницей:
 
@@ -370,7 +588,7 @@ on:
 
 ---
 
-## 11. Чем это **не** является
+## 12. Чем это **не** является
 
 - **Не multi-host.** Одна VM. Если умрёт — приложение умерло. В реальном проде
   был бы как минимум standby и managed Postgres.

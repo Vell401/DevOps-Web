@@ -78,7 +78,8 @@ docker compose exec backend npm run prisma:seed
 - Swagger — <http://localhost:3000/api/docs>
 - Health: `/api/health/live` (процесс), `/api/health/ready` (пинг БД)
 
-**Тестовые пользователи** (пароль `12345678`): `1@1.com`, `2@2.com`, `3@3.com`.
+**Тестовые пользователи**: `admin@tracker.local` / `admin1234` и `test@tracker.local` / `test1234`.
+Свои пароли при сиде: `SEED_ADMIN_PASSWORD=... SEED_TEST_PASSWORD=... npm run prisma:seed`.
 
 Подробная инструкция для Windows — в [RUNNING-WINDOWS.md](./RUNNING-WINDOWS.md).
 `make help` показывает основные операционные команды.

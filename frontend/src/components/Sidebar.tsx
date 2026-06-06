@@ -48,6 +48,9 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
         <NavSection>
           <NavLinkItem to="/projects" icon={<Icon.Layers size={14} />} label="All projects" end />
           <NavLinkItem to="/inbox" icon={<Icon.Activity size={14} />} label="Activity" disabled />
+          {user?.isAdmin && (
+            <NavLinkItem to="/admin" icon={<Icon.Sparkle size={14} />} label="Admin" />
+          )}
         </NavSection>
 
         <div className="mt-5 flex items-center justify-between px-3 pb-1.5">

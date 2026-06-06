@@ -46,20 +46,27 @@ docker compose exec backend npm run prisma:seed
 
 ## 3. Тестовые учётки для входа
 
-Засеяны три простые учётки (у всех один пароль):
+Засеяны две учётки:
 
-| Email     | Пароль     |
-|-----------|------------|
-| `1@1.com` | `12345678` |
-| `2@2.com` | `12345678` |
-| `3@3.com` | `12345678` |
+| Email                  | Пароль      | Назначение                |
+|------------------------|-------------|---------------------------|
+| `admin@tracker.local`  | `admin1234` | Владелец demo-проектов    |
+| `test@tracker.local`   | `test1234`  | Для тестов assignment-ов  |
 
 Войди на <http://localhost:5173> с любой из них. Можно проверить и через API:
 
 ```powershell
 curl -X POST http://localhost:3000/api/auth/login `
   -H "Content-Type: application/json" `
-  -d "{\"email\":\"1@1.com\",\"password\":\"12345678\"}"
+  -d "{\"email\":\"admin@tracker.local\",\"password\":\"admin1234\"}"
+```
+
+Хочешь свои пароли — задай env-переменные перед сидом:
+
+```powershell
+$env:SEED_ADMIN_PASSWORD = "тут-длинный-пароль"
+$env:SEED_TEST_PASSWORD = "another-pass"
+docker compose exec backend npm run prisma:seed
 ```
 
 Ответ — пара JWT-токенов (`accessToken` + `refreshToken`).

@@ -79,14 +79,6 @@ export function LoginPage() {
           </Link>
         </p>
       </form>
-
-      <div className="mt-8 rounded-lg border border-line bg-surface p-4 text-xs text-ink-muted">
-        <span className="font-medium text-ink">Demo accounts</span> · password{' '}
-        <code className="kbd">12345678</code>
-        <div className="mt-1.5 font-mono text-[11px] text-ink-muted">
-          1@1.com · 2@2.com · 3@3.com
-        </div>
-      </div>
     </AuthSplit>
   );
 }

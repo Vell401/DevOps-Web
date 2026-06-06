@@ -44,7 +44,8 @@ docker compose exec backend npm run prisma:seed         # creates test users
 - Health: `/api/health/live` (process), `/api/health/ready` (DB ping)
 - Tests: `make test-backend` (Jest), `cd frontend && npm test` (Vitest), `make lint`
 
-**Seeded test accounts** (password `12345678`): `1@1.com`, `2@2.com`, `3@3.com`.
+**Seeded accounts**: `admin@tracker.local` / `admin1234` and `test@tracker.local` / `test1234`.
+Override passwords at seed time with `SEED_ADMIN_PASSWORD` / `SEED_TEST_PASSWORD` env vars.
 
 ## Conventions
 

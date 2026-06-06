@@ -113,11 +113,11 @@
     padding: 0 2px;
   }
 
-  /* Subtle paper noise */
+  /* Subtle paper noise — cool grey, very low opacity */
   .bg-noise {
     background-image:
-      radial-gradient(rgba(60, 55, 50, 0.04) 1px, transparent 1px),
-      radial-gradient(rgba(60, 55, 50, 0.03) 1px, transparent 1px);
+      radial-gradient(rgba(31, 41, 55, 0.035) 1px, transparent 1px),
+      radial-gradient(rgba(31, 41, 55, 0.025) 1px, transparent 1px);
     background-size: 24px 24px, 16px 16px;
     background-position: 0 0, 12px 12px;
   }
