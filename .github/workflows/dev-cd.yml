@@ -1,0 +1,248 @@
+# Dev branch CI/CD pipeline.
+#
+#   test (ubuntu-latest)   →   build & push (ubuntu-latest)   →   deploy (self-hosted)
+#                                       │                                   │
+#                                       └── pushes images to Docker Hub ────┘
+#                                              tagged with sha-<short> + "dev"
+#
+# Two trigger modes:
+#   1. push to `dev`            — full pipeline: tests → build → deploy NEW sha.
+#   2. workflow_dispatch        — rollback: skips test+build, deploys an
+#                                 already-built tag (e.g. sha-abc1234) from Hub.
+#
+# Why this split?
+#   - The repository is PUBLIC. Running build steps on a self-hosted runner that
+#     lives on the deploy VM would expose the VM to anyone opening a PR. By
+#     restricting the self-hosted runner to the deploy step (which only does
+#     `docker pull` + `docker compose up`), the attack surface is minimal.
+#   - Build runs on GitHub-hosted ubuntu-latest (free for public repos), which is
+#     ephemeral and isolated.
+#
+# Required GitHub secrets:
+#   DOCKERHUB_USERNAME      Docker Hub login
+#   DOCKERHUB_TOKEN         Docker Hub access token (NOT password)
+#   POSTGRES_PASSWORD       database password used inside the VM
+#   JWT_ACCESS_SECRET       random ~64-byte string
+#   JWT_REFRESH_SECRET      random ~64-byte string
+#   CORS_ORIGINS            comma-separated allowed origins, e.g. http://192.168.1.100
+#
+# Required GitHub variables (optional, with sensible defaults):
+#   VITE_API_URL            URL baked into the frontend bundle (default: /api)
+#   DEPLOY_DIR              absolute path on the VM (default: /opt/tracker)
+#
+# Self-hosted runner must be registered with labels: self-hosted, linux, tracker
+name: Dev CI/CD
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag to deploy (e.g. sha-abc1234). Leave empty to build current dev HEAD."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# Don't cancel an in-flight deploy — partial rollouts are worse than a queue.
+concurrency:
+  group: dev-cd
+  cancel-in-progress: false
+
+env:
+  COMPOSE_PROJECT_NAME: tracker
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. TEST — same as ci.yml but only the parts that gate a release
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test
+    if: github.event_name == 'push' || inputs.image_tag == ''
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tracker
+          POSTGRES_PASSWORD: tracker
+          POSTGRES_DB: tracker_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tracker -d tracker_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://tracker:tracker@localhost:5432/tracker_test?schema=public
+      JWT_ACCESS_SECRET: ci_access
+      JWT_REFRESH_SECRET: ci_refresh
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npm test -- --runInBand
+      - name: Frontend tests
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+
+  # ---------------------------------------------------------------------------
+  # 2. BUILD — build both images, push to Docker Hub
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build & push (${{ matrix.component.name }})
+    if: github.event_name == 'push' || inputs.image_tag == ''
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        component:
+          - { name: backend,  context: ./backend,  image: tracker-backend }
+          - { name: frontend, context: ./frontend, image: tracker-frontend }
+    outputs:
+      sha_tag: ${{ steps.tag.outputs.sha_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute immutable sha tag
+        id: tag
+        run: |
+          short=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "sha_tag=sha-${short}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & push ${{ matrix.component.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.component.context }}
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.component.image }}:${{ steps.tag.outputs.sha_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.component.image }}:dev
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.component.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.component.name }}
+          cache-to: type=gha,scope=${{ matrix.component.name }},mode=max
+          build-args: |
+            VITE_API_URL=${{ vars.VITE_API_URL || '/api' }}
+
+  # ---------------------------------------------------------------------------
+  # 3. DEPLOY — on the self-hosted runner, on the VM
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy to VM
+    needs: build
+    # Run when build succeeded OR when this is a manual rollback (build skipped).
+    if: |
+      always() &&
+      (needs.build.result == 'success' ||
+       (github.event_name == 'workflow_dispatch' && inputs.image_tag != ''))
+    runs-on: [self-hosted, linux, tracker]
+    environment: dev
+    env:
+      DEPLOY_DIR: ${{ vars.DEPLOY_DIR || '/opt/tracker' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve deploy tag
+        id: deploy_tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ needs.build.outputs.sha_tag }}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Deploying tag: $(grep tag= "$GITHUB_OUTPUT" | cut -d= -f2)"
+
+      - name: Sync deploy assets to VM
+        run: |
+          set -euo pipefail
+          mkdir -p "$DEPLOY_DIR/deploy"
+          cp docker-compose.prod.yml "$DEPLOY_DIR/docker-compose.prod.yml"
+          cp deploy/edge.conf "$DEPLOY_DIR/deploy/edge.conf"
+
+      - name: Write .env from secrets
+        run: |
+          set -euo pipefail
+          umask 077
+          cat > "$DEPLOY_DIR/.env" <<EOF
+          # Generated by GitHub Actions — do not edit by hand.
+          # Source: github.com/${{ github.repository }} @ ${{ github.sha }}
+          DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+          IMAGE_TAG=${{ steps.deploy_tag.outputs.tag }}
+          POSTGRES_USER=tracker
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB=tracker
+          JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }}
+          JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
+          JWT_ACCESS_TTL=15m
+          JWT_REFRESH_TTL=7d
+          CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
+          LOG_LEVEL=info
+          THROTTLE_TTL=60
+          THROTTLE_LIMIT=120
+          COMPOSE_PROJECT_NAME=tracker
+          EOF
+
+      - name: Log in to Docker Hub (on VM)
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull new images
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: docker compose -f docker-compose.prod.yml --env-file .env pull
+
+      - name: Run database migrations
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          docker compose -f docker-compose.prod.yml --env-file .env run --rm backend \
+            npx prisma migrate deploy
+
+      - name: Bring stack up
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: docker compose -f docker-compose.prod.yml --env-file .env up -d --remove-orphans
+
+      - name: Wait for readiness
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost/api/health/ready >/dev/null; then
+              echo "Backend ready after ${i} attempt(s)."
+              exit 0
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+          echo "::error::Backend failed readiness check"
+          docker compose -f docker-compose.prod.yml --env-file .env logs --tail=200 backend
+          exit 1
+
+      - name: Prune dangling images
+        if: success()
+        run: docker image prune -f

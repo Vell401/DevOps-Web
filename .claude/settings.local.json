@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm \"C:/web/DevOps-Web/.github/workflows/release.yml\" \"C:/web/DevOps-Web/.github/workflows/deploy.yml\" && ls \"C:/web/DevOps-Web/.github/workflows\")",
+      "Bash(npm run *)",
+      "Bash(npm test *)",
+      "Bash(node -e ' *)"
+    ]
+  }
+}

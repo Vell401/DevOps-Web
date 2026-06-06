@@ -1,17 +1,18 @@
-# CI — runs on every PR and on pushes to main.
-# Lint + tests for both backend and frontend.
+# CI — lint + tests for both backend and frontend.
+# Runs on:
+#   - pull requests targeting main or dev
+#   - direct pushes to main and dev (gives green/red marker independent of dev-cd.yml)
 #
-# What you (the DevOps engineer) should extend:
-#   - add eslint configs and a lint step that fails on warnings
-#   - cache prisma client between jobs
-#   - add an e2e job that boots compose and hits /api/health/ready
-#   - upload coverage to Codecov / sonar
+# Always runs on GitHub-hosted ubuntu-latest (never on the self-hosted VM), so a
+# malicious PR cannot reach the deploy machine. Fork PRs are governed by the
+# repo's "Require approval for outside collaborators" setting.
 name: CI
 
 on:
   pull_request:
+    branches: [main, dev]
   push:
-    branches: [main]
+    branches: [main, dev]
 
 permissions:
   contents: read
@@ -22,7 +23,7 @@ concurrency:
 
 jobs:
   backend:
-    name: backend (test)
+    name: backend (test + build)
     runs-on: ubuntu-latest
     defaults:
       run:
