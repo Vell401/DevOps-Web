@@ -8,6 +8,7 @@ import { ActivityType, Prisma, TaskPriority, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
 import { ActivityService } from '../activity/activity.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { QueryTasksDto } from './dto/query-tasks.dto';
@@ -27,6 +28,7 @@ export class TasksService {
     private readonly prisma: PrismaService,
     private readonly projects: ProjectsService,
     private readonly activity: ActivityService,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   private async assertAssigneeExists(assigneeId: string | undefined | null): Promise<void> {
@@ -165,6 +167,7 @@ export class TasksService {
       return task;
     });
 
+    this.realtime.emitTaskUpserted(projectId, result);
     return result;
   }
 
@@ -322,11 +325,13 @@ export class TasksService {
       return after;
     });
 
+    this.realtime.emitTaskUpserted(before.projectId, result);
     return result;
   }
 
   async remove(id: string, userId: string): Promise<void> {
-    await this.get(id, userId);
+    const task = await this.get(id, userId);
     await this.prisma.task.delete({ where: { id } });
+    this.realtime.emitTaskDeleted(task.projectId, id);
   }
 }

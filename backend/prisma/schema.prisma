@@ -69,19 +69,21 @@ model User {
 }
 
 model Project {
-  id          String   @id @default(uuid())
-  key         String   @unique
+  id          String    @id @default(uuid())
+  key         String    @unique
   name        String
   description String?
   ownerId     String
-  owner       User     @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  taskCounter Int      @default(0)
+  owner       User      @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  taskCounter Int       @default(0)
+  closedAt    DateTime?
   tasks       Task[]
   labels      Label[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([ownerId])
+  @@index([closedAt])
 }
 
 model Task {

@@ -70,6 +70,7 @@ export interface Project {
   description: string | null;
   ownerId: string;
   taskCounter: number;
+  closedAt: string | null;
   createdAt: string;
   updatedAt: string;
   stats?: { total: number; done: number };
@@ -130,5 +131,17 @@ export interface Activity {
   fromValue: string | null;
   toValue: string | null;
   createdAt: string;
-  task?: { id: string; title: string; number: number };
+  task?: {
+    id: string;
+    title: string;
+    number: number;
+    project?: { id: string; key: string; name: string };
+  };
+}
+
+export interface ActivityStats {
+  last30Days: { date: string; count: number }[];
+  topContributors: { userId: string; name: string; avatarColor?: string; count: number }[];
+  mostActiveTasks: { taskId: string; number: number; title: string; count: number }[];
+  totalEvents30d: number;
 }

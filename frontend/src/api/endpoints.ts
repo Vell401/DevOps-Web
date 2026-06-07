@@ -1,6 +1,8 @@
 import { api } from './client';
 import type {
   Activity,
+  ActivityStats,
+  ActivityType,
   AdminStats,
   AdminUser,
   Comment,
@@ -30,12 +32,17 @@ export const authApi = {
 };
 
 export const projectsApi = {
-  list: () => api.get<Project[]>('/projects'),
+  list: (opts: { closed?: boolean } = {}) =>
+    api.get<Project[]>('/projects', {
+      params: opts.closed ? { closed: 'true' } : undefined,
+    }),
   get: (id: string) => api.get<Project>(`/projects/${id}`),
   create: (name: string, description?: string) =>
     api.post<Project>('/projects', { name, description }),
   update: (id: string, body: Partial<Pick<Project, 'name' | 'description'>>) =>
     api.patch<Project>(`/projects/${id}`, body),
+  close: (id: string) => api.post<Project>(`/projects/${id}/close`),
+  reopen: (id: string) => api.post<Project>(`/projects/${id}/reopen`),
   remove: (id: string) => api.delete(`/projects/${id}`),
   activity: (id: string) => api.get<Activity[]>(`/projects/${id}/activity`),
 };
@@ -98,6 +105,24 @@ export const labelsApi = {
 
 export const usersApi = {
   list: () => api.get<UserLite[]>('/users'),
+};
+
+export interface ActivityFilters {
+  actorId?: string;
+  type?: ActivityType;
+  projectId?: string;
+}
+
+export const activityApi = {
+  global: (filters: ActivityFilters = {}) => {
+    const params: Record<string, string> = {};
+    if (filters.actorId) params.actorId = filters.actorId;
+    if (filters.type) params.type = filters.type;
+    if (filters.projectId) params.projectId = filters.projectId;
+    return api.get<Activity[]>('/activity', { params });
+  },
+  projectStats: (projectId: string) =>
+    api.get<ActivityStats>(`/projects/${projectId}/activity/stats`),
 };
 
 export interface AdminUpdateUserBody {

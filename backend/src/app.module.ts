@@ -16,6 +16,7 @@ import { CommentsModule } from './comments/comments.module';
 import { LabelsModule } from './labels/labels.module';
 import { ActivityModule } from './activity/activity.module';
 import { AdminModule } from './admin/admin.module';
+import { RealtimeModule } from './realtime/realtime.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { AdminModule } from './admin/admin.module';
     LabelsModule,
     ActivityModule,
     AdminModule,
+    RealtimeModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

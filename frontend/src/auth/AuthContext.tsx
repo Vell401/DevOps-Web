@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react';
 import { authApi } from '../api/endpoints';
 import { tokenStorage } from '../api/client';
+import { disconnectRealtime } from '../lib/realtime';
 import type { User } from '../types';
 
 interface AuthState {
@@ -56,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (refresh) {
       await authApi.logout(refresh).catch(() => undefined);
     }
+    disconnectRealtime();
     tokenStorage.clear();
     setUser(null);
   }, []);

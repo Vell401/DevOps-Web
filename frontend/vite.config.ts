@@ -6,6 +6,15 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    // Local dev: proxy /api → backend (REST + WebSocket).
+    // In prod, edge nginx does this.
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        ws: true,
+      },
+    },
   },
   test: {
     environment: 'jsdom',

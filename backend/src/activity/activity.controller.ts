@@ -5,9 +5,11 @@ import {
   NotFoundException,
   Param,
   ParseUUIDPipe,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ActivityType } from '@prisma/client';
 
 import { ActivityService } from './activity.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -52,4 +54,45 @@ export class ActivityController {
     await this.projects.getOwned(projectId, user.userId);
     return this.activity.listForProject(projectId);
   }
+
+  @Get('projects/:projectId/activity/stats')
+  async statsForProject(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.projects.getOwned(projectId, user.userId);
+    return this.activity.statsForProject(projectId);
+  }
+
+  /** Global activity inbox: events across all projects owned by the user. */
+  @Get('activity')
+  async listForUser(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('actorId') actorId?: string,
+    @Query('type') type?: string,
+    @Query('projectId') projectId?: string,
+  ) {
+    return this.activity.listForUser(user.userId, {
+      actorId,
+      type: isActivityType(type) ? type : undefined,
+      projectId,
+    });
+  }
+}
+
+function isActivityType(v: string | undefined): v is ActivityType {
+  if (!v) return false;
+  return [
+    'CREATED',
+    'STATUS_CHANGED',
+    'ASSIGNEE_CHANGED',
+    'PRIORITY_CHANGED',
+    'TITLE_CHANGED',
+    'DESCRIPTION_CHANGED',
+    'DUE_DATE_CHANGED',
+    'LABEL_ADDED',
+    'LABEL_REMOVED',
+    'PARENT_CHANGED',
+    'COMMENT_ADDED',
+  ].includes(v);
 }

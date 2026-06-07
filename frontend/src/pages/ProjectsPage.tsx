@@ -105,7 +105,9 @@ function ProjectCard({ project }: { project: Project }) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <span className="kbd mb-2 inline-block font-mono uppercase">{project.key}</span>
+          <span className="mb-2 inline-block font-mono text-[13px] font-semibold uppercase tracking-wide text-ink-muted">
+            {project.key}
+          </span>
           <h3 className="font-display text-lg font-medium leading-tight text-ink line-clamp-2">
             {project.name}
           </h3>

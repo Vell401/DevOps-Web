@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Task, TaskStatus } from '../../types';
 import { STATUS_ORDER, STATUS_META } from '../../lib/meta';
 import { TaskCard } from './TaskCard';
@@ -16,6 +16,23 @@ interface Props {
 export function Board({ tasks, projectKey, onOpen, onMove, onQuickAdd }: Props) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [overColumn, setOverColumn] = useState<TaskStatus | null>(null);
+
+  // Safety net: the optimistic re-render after onMove can re-parent the dragged
+  // DOM node, so the source element's onDragEnd handler doesn't always fire.
+  // Listening on window catches both `dragend` (cancelled drags) and `drop`
+  // anywhere on the page, guaranteeing the visual state resets.
+  useEffect(() => {
+    const reset = () => {
+      setDragging(null);
+      setOverColumn(null);
+    };
+    window.addEventListener('dragend', reset);
+    window.addEventListener('drop', reset);
+    return () => {
+      window.removeEventListener('dragend', reset);
+      window.removeEventListener('drop', reset);
+    };
+  }, []);
 
   // include only top-level tasks on the board
   const visible = tasks.filter((t) => !t.parentId);
@@ -38,6 +55,7 @@ export function Board({ tasks, projectKey, onOpen, onMove, onQuickAdd }: Props) 
               e.preventDefault();
               setOverColumn(null);
               if (dragging) onMove(dragging, status);
+              setDragging(null);
             }}
             className={cn(
               'flex h-full w-72 shrink-0 flex-col rounded-lg border border-line bg-paper/60 transition',

@@ -3,7 +3,9 @@ import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { ProjectsPage } from './pages/ProjectsPage';
+import { ClosedProjectsPage } from './pages/ClosedProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
+import { ActivityPage } from './pages/ActivityPage';
 import { AdminPage } from './pages/AdminPage';
 import { RequireAuth } from './auth/RequireAuth';
 import { RequireAdmin } from './auth/RequireAdmin';
@@ -22,7 +24,9 @@ export function App() {
       >
         <Route path="/" element={<Navigate to="/projects" replace />} />
         <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/projects/closed" element={<ClosedProjectsPage />} />
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
+        <Route path="/activity" element={<ActivityPage />} />
         <Route
           path="/admin"
           element={

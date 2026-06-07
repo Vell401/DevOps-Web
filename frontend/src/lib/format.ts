@@ -42,3 +42,34 @@ export function toIsoDateInput(iso: string | null | undefined): string {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+
+function dateKey(iso: string): string {
+  return toIsoDateInput(iso);
+}
+
+export function groupByDay<T extends { createdAt: string }>(
+  items: T[],
+): Array<[string, T[]]> {
+  const map = new Map<string, T[]>();
+  for (const it of items) {
+    const k = dateKey(it.createdAt);
+    const arr = map.get(k) ?? [];
+    arr.push(it);
+    map.set(k, arr);
+  }
+  return Array.from(map.entries()).sort(([a], [b]) => (a < b ? 1 : -1));
+}
+
+export function dayLabel(key: string): string {
+  const today = dateKey(new Date().toISOString());
+  if (key === today) return 'Today';
+  const yest = new Date();
+  yest.setDate(yest.getDate() - 1);
+  if (key === dateKey(yest.toISOString())) return 'Yesterday';
+  return new Date(key).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: new Date(key).getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+  });
+}

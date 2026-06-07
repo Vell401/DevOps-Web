@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -26,8 +27,11 @@ export class ProjectsController {
   constructor(private readonly projects: ProjectsService) {}
 
   @Get()
-  list(@CurrentUser() user: AuthenticatedUser) {
-    return this.projects.list(user.userId);
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('closed') closed?: string,
+  ) {
+    return this.projects.list(user.userId, { closed: closed === 'true' });
   }
 
   @Get(':id')
@@ -50,6 +54,22 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projects.update(id, user.userId, dto);
+  }
+
+  @Post(':id/close')
+  close(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projects.close(id, user.userId);
+  }
+
+  @Post(':id/reopen')
+  reopen(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projects.reopen(id, user.userId);
   }
 
   @Delete(':id')

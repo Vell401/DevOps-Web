@@ -1,4 +1,9 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -36,10 +41,15 @@ export class ProjectsService {
     return `${base}${Date.now().toString(36).toUpperCase()}`;
   }
 
-  async list(userId: string) {
+  async list(userId: string, opts: { closed?: boolean } = {}) {
     const projects = await this.prisma.project.findMany({
-      where: { ownerId: userId },
-      orderBy: { createdAt: 'desc' },
+      where: {
+        ownerId: userId,
+        closedAt: opts.closed ? { not: null } : null,
+      },
+      orderBy: opts.closed
+        ? { closedAt: 'desc' }
+        : { createdAt: 'desc' },
       include: { _count: { select: { tasks: true } } },
     });
     if (!projects.length) return [];
@@ -85,6 +95,34 @@ export class ProjectsService {
         name: dto.name?.trim(),
         description: dto.description,
       },
+    });
+  }
+
+  async close(id: string, userId: string) {
+    const project = await this.getOwned(id, userId);
+    if (project.closedAt) {
+      // Idempotent: already closed.
+      return project;
+    }
+    const unfinished = await this.prisma.task.count({
+      where: { projectId: id, status: { not: 'DONE' } },
+    });
+    if (unfinished > 0) {
+      throw new BadRequestException(
+        `Cannot close: ${unfinished} unfinished task${unfinished === 1 ? '' : 's'} remain`,
+      );
+    }
+    return this.prisma.project.update({
+      where: { id },
+      data: { closedAt: new Date() },
+    });
+  }
+
+  async reopen(id: string, userId: string) {
+    await this.getOwned(id, userId);
+    return this.prisma.project.update({
+      where: { id },
+      data: { closedAt: null },
     });
   }
 
