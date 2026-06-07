@@ -3,31 +3,31 @@ import type { ReactNode } from 'react';
 export function AuthSplit({ children }: { children: ReactNode }) {
   return (
     <div className="grid min-h-screen w-screen bg-paper bg-noise md:grid-cols-2">
-      <aside className="relative hidden flex-col justify-between border-r border-line bg-surface px-10 py-10 md:flex">
+      <aside className="relative hidden flex-col justify-between bg-surface-sunken bg-ambient px-10 py-10 md:flex">
         <div className="flex items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-md bg-ink text-paper">
-            <span className="font-display text-[13px] font-bold">t</span>
+          <span className="grid h-9 w-9 place-items-center rounded-lg bg-blurple text-white shadow-glow">
+            <span className="font-display text-[15px] font-bold">t</span>
           </span>
-          <span className="font-display text-lg font-semibold tracking-tight">
+          <span className="font-display text-lg font-semibold tracking-tight text-ink">
             tracker
           </span>
         </div>
 
         <div className="relative">
-          <h2 className="font-display text-[42px] font-semibold leading-[1.05] text-ink text-balance">
+          <h2 className="font-display text-[44px] font-semibold leading-[1.04] text-ink text-balance">
             Work, <span className="text-mark">in plain view</span>.
             <br />
             Without the ceremony.
           </h2>
-          <p className="mt-5 max-w-md text-sm text-ink-muted">
+          <p className="mt-5 max-w-md text-sm leading-relaxed text-ink-muted">
             A small, opinionated task tracker. Boards, comments, history, labels —
             none of the dashboards you never opened.
           </p>
 
           <ul className="mt-8 space-y-2.5 text-sm text-ink">
-            <Bullet color="bg-sun-300">Six-column flow: Backlog → Done</Bullet>
-            <Bullet color="bg-leaf-300">Labels with a calm palette</Bullet>
-            <Bullet color="bg-chip-purple">Subtasks and a full activity log</Bullet>
+            <Bullet color="bg-blurple">Six-column flow: Backlog → Done</Bullet>
+            <Bullet color="bg-status-online">Labels with role-style tags</Bullet>
+            <Bullet color="bg-status-idle">Subtasks and a full activity log</Bullet>
           </ul>
         </div>
 

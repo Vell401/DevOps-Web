@@ -39,7 +39,7 @@ export function ProjectsPage() {
         crumbs={[{ label: 'Projects' }]}
         search={{ value: query, onChange: setQuery, placeholder: 'Search projects' }}
         right={
-          <button onClick={openCreateProject} className="btn-accent">
+          <button onClick={openCreateProject} className="btn-primary">
             <Icon.Plus size={14} />
             New project
           </button>
@@ -80,7 +80,7 @@ export function ProjectsPage() {
             <li>
               <button
                 onClick={openCreateProject}
-                className="flex h-full min-h-[156px] w-full items-center justify-center rounded-lg border border-dashed border-line-strong bg-transparent text-sm text-ink-muted transition hover:border-ink-muted hover:bg-surface hover:text-ink"
+                className="flex h-full min-h-[156px] w-full items-center justify-center rounded-lg border border-dashed border-line-strong bg-transparent text-sm text-ink-muted transition hover:border-blurple hover:bg-surface/50 hover:text-ink"
               >
                 <span className="inline-flex items-center gap-1.5">
                   <Icon.Plus size={14} /> New project
@@ -101,7 +101,7 @@ function ProjectCard({ project }: { project: Project }) {
   return (
     <Link
       to={`/projects/${project.id}`}
-      className="group flex h-full flex-col gap-4 rounded-lg border border-line bg-surface p-5 shadow-card transition hover:border-ink-muted"
+      className="group relative flex h-full flex-col gap-4 rounded-lg bg-surface p-5 shadow-card transition hover:bg-surface-hover"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -112,7 +112,7 @@ function ProjectCard({ project }: { project: Project }) {
         </div>
         <Icon.ArrowRight
           size={16}
-          className="mt-1 text-ink-subtle transition group-hover:translate-x-0.5 group-hover:text-ink"
+          className="mt-1 text-ink-subtle transition group-hover:translate-x-0.5 group-hover:text-blurple"
         />
       </div>
       {project.description && (
@@ -126,9 +126,9 @@ function ProjectCard({ project }: { project: Project }) {
           </span>
           <span className="font-mono text-ink-subtle">{progress}%</span>
         </div>
-        <div className="h-1 overflow-hidden rounded-full bg-surface-sunken">
+        <div className="h-1 overflow-hidden rounded-full bg-surface-deep">
           <div
-            className="h-full rounded-full bg-leaf-400 transition-[width] duration-300"
+            className="h-full rounded-full bg-status-online transition-[width] duration-300"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -148,7 +148,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
         <p className="mt-1 text-sm text-ink-muted">
           A project keeps a board, labels, and history for a focused stream of work.
         </p>
-        <button onClick={onCreate} className="btn-accent mt-4 mx-auto">
+        <button onClick={onCreate} className="btn-primary mt-4 mx-auto">
           <Icon.Plus size={14} /> Create project
         </button>
       </div>

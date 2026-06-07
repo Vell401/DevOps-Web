@@ -31,7 +31,7 @@ export function Drawer({ open, onClose, children, width = 520 }: Props) {
       <button
         aria-label="Close drawer"
         onClick={onClose}
-        className="flex-1 bg-ink/10 transition"
+        className="flex-1 bg-black/50 transition"
       />
       <aside
         role="dialog"

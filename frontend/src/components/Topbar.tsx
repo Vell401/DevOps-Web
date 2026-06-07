@@ -14,7 +14,7 @@ interface Props {
 
 export function Topbar({ crumbs, right, search }: Props) {
   return (
-    <header className="flex h-12 items-center gap-4 border-b border-line bg-paper/80 px-5 backdrop-blur">
+    <header className="flex h-12 items-center gap-4 border-b border-line/60 bg-paper/85 px-5 backdrop-blur">
       <nav className="flex items-center gap-1.5 text-sm text-ink-muted">
         {crumbs.map((c, i) => (
           <span key={i} className="flex items-center gap-1.5">
@@ -44,7 +44,7 @@ export function Topbar({ crumbs, right, search }: Props) {
             value={search.value}
             onChange={(e) => search.onChange(e.target.value)}
             placeholder={search.placeholder ?? 'Search'}
-            className="h-8 w-full rounded-md border border-line bg-surface pl-8 pr-12 text-sm text-ink placeholder:text-ink-subtle focus:border-ink-muted focus-visible:shadow-focus"
+            className="h-8 w-full rounded-md border border-transparent bg-surface-deep pl-8 pr-12 text-sm text-ink placeholder:text-ink-subtle focus:border-blurple focus-visible:shadow-focus"
           />
           <span className="kbd absolute right-2 top-1/2 -translate-y-1/2">⌘ K</span>
         </div>
