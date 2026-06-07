@@ -26,7 +26,7 @@ import { Spinner } from '../ui/Spinner';
 import { useToast } from '../ui/Toast';
 import { Popover, PopoverItem } from '../ui/Popover';
 import { timeAgo } from '../lib/format';
-import { useProjectRealtime } from '../lib/realtime';
+import { useProjectRealtime, useUserRealtime } from '../lib/realtime';
 import { useAuth } from '../auth/AuthContext';
 import { cn } from '../lib/cn';
 import type { LayoutContext } from '../components/Layout';
@@ -182,6 +182,15 @@ export function ProjectDetailPage() {
     },
   });
 
+  // Realtime: when project state changes (auto-close, manual close/reopen, or
+  // an assignment that doesn't go through this view), re-fetch project core so
+  // the banner / "Close project" button reflects reality without a refresh.
+  useUserRealtime({
+    'projects-changed': () => {
+      void reloadCore();
+    },
+  });
+
   const filteredTasks = useMemo(() => {
     // server already filtered; for the local q in case server skipped it
     if (!filters.q) return tasks;
@@ -226,7 +235,7 @@ export function ProjectDetailPage() {
         }}
         right={
           <>
-            {!isClosed && (
+            {!isClosed && isOwner && (
               <button onClick={() => setNewTaskFor('TODO')} className="btn-primary">
                 <Icon.Plus size={14} /> New task
               </button>
@@ -384,6 +393,7 @@ export function ProjectDetailPage() {
         projectKey={project.key}
         users={users}
         labels={labels}
+        canEdit={isOwner && !isClosed}
         onClose={() => setTaskId(null)}
         onChanged={() => {
           void reloadTasks();

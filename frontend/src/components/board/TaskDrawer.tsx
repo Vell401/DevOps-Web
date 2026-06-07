@@ -39,6 +39,8 @@ interface Props {
   projectKey: string;
   users: UserLite[];
   labels: Label[];
+  /** When false, all edits except status changes are visually disabled. */
+  canEdit: boolean;
   onClose: () => void;
   onChanged: () => void;
   onLabelsChanged: () => void;
@@ -51,6 +53,7 @@ export function TaskDrawer({
   projectKey,
   users,
   labels,
+  canEdit,
   onClose,
   onChanged,
   onLabelsChanged,
@@ -131,6 +134,7 @@ export function TaskDrawer({
           <DrawerHeader
             task={task}
             projectKey={projectKey}
+            canEdit={canEdit}
             onClose={onClose}
             onDelete={onDelete}
           />
@@ -158,6 +162,7 @@ export function TaskDrawer({
                 task={task}
                 users={users}
                 labels={labels}
+                canEdit={canEdit}
                 onPatch={patch}
                 onLabelsChanged={onLabelsChanged}
               />
@@ -184,11 +189,13 @@ export function TaskDrawer({
 function DrawerHeader({
   task,
   projectKey,
+  canEdit,
   onClose,
   onDelete,
 }: {
   task: Task;
   projectKey: string;
+  canEdit: boolean;
   onClose: () => void;
   onDelete: () => void;
 }) {
@@ -199,31 +206,33 @@ function DrawerHeader({
       </span>
       <StatusBadge status={task.status} />
       <div className="flex-1" />
-      <Popover
-        align="end"
-        trigger={({ toggle }) => (
-          <button
-            onClick={toggle}
-            className="rounded-sm p-1 text-ink-muted hover:bg-surface-sunken hover:text-ink"
-            aria-label="Task menu"
-          >
-            <Icon.Dots size={16} />
-          </button>
-        )}
-      >
-        {(close) => (
-          <PopoverItem
-            danger
-            icon={<Icon.Trash size={13} />}
-            onClick={() => {
-              close();
-              onDelete();
-            }}
-          >
-            Delete task
-          </PopoverItem>
-        )}
-      </Popover>
+      {canEdit && (
+        <Popover
+          align="end"
+          trigger={({ toggle }) => (
+            <button
+              onClick={toggle}
+              className="rounded-sm p-1 text-ink-muted hover:bg-surface-sunken hover:text-ink"
+              aria-label="Task menu"
+            >
+              <Icon.Dots size={16} />
+            </button>
+          )}
+        >
+          {(close) => (
+            <PopoverItem
+              danger
+              icon={<Icon.Trash size={13} />}
+              onClick={() => {
+                close();
+                onDelete();
+              }}
+            >
+              Delete task
+            </PopoverItem>
+          )}
+        </Popover>
+      )}
       <button
         onClick={onClose}
         className="rounded-sm p-1 text-ink-muted hover:bg-surface-sunken hover:text-ink"
@@ -263,33 +272,64 @@ function OverviewTab({
   task,
   users,
   labels,
+  canEdit,
   onPatch,
   onLabelsChanged,
 }: {
   task: Task;
   users: UserLite[];
   labels: Label[];
+  canEdit: boolean;
   onPatch: (body: TaskBody) => void;
   onLabelsChanged: () => void;
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
+  // Local pending list of assignee ids — avoids a race when the user picks
+  // several people in a row faster than the server can echo back.
+  const [pendingAssignees, setPendingAssignees] = useState<string[] | null>(null);
+  const effectiveAssigneeIds = pendingAssignees ?? task.assignees.map((a) => a.id);
 
   useEffect(() => {
     setTitle(task.title);
     setDescription(task.description ?? '');
+    setPendingAssignees(null);
   }, [task.id, task.title, task.description]);
 
+  // Sync pending → server confirmed once they match (or the drawer switches tasks).
+  useEffect(() => {
+    if (!pendingAssignees) return;
+    const serverIds = new Set(task.assignees.map((a) => a.id));
+    const pendingIds = new Set(pendingAssignees);
+    if (
+      pendingIds.size === serverIds.size &&
+      [...pendingIds].every((id) => serverIds.has(id))
+    ) {
+      setPendingAssignees(null);
+    }
+  }, [task.assignees, pendingAssignees]);
+
   const commitTitle = () => {
+    if (!canEdit) return;
     const next = title.trim();
     if (next && next !== task.title) onPatch({ title: next });
   };
   const commitDescription = () => {
+    if (!canEdit) return;
     const next = description.trim();
     if ((task.description ?? '') !== next) onPatch({ description: next || null });
   };
 
-  const assigneeIds = new Set(task.assignees.map((a) => a.id));
+  const toggleAssignee = (uid: string) => {
+    const cur = effectiveAssigneeIds;
+    const active = cur.includes(uid);
+    const next = active ? cur.filter((x) => x !== uid) : [...cur, uid];
+    setPendingAssignees(next);
+    onPatch({ assigneeIds: next });
+  };
+
+  const assigneeSet = new Set(effectiveAssigneeIds);
+  const visibleAssignees = users.filter((u) => assigneeSet.has(u.id));
 
   return (
     <div className="space-y-5">
@@ -298,7 +338,13 @@ function OverviewTab({
         onChange={(e) => setTitle(e.target.value)}
         onBlur={commitTitle}
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-        className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 font-display text-2xl font-semibold leading-tight text-ink placeholder:text-ink-subtle hover:border-line focus:border-ink-muted focus-visible:shadow-focus"
+        readOnly={!canEdit}
+        className={cn(
+          'w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 font-display text-2xl font-semibold leading-tight text-ink placeholder:text-ink-subtle',
+          canEdit
+            ? 'hover:border-line focus:border-ink-muted focus-visible:shadow-focus'
+            : 'cursor-default',
+        )}
         placeholder="Task title"
       />
 
@@ -332,88 +378,77 @@ function OverviewTab({
           </FieldRow>
 
           <FieldRow label="Priority">
-            <Popover
-              trigger={({ toggle }) => (
-                <button onClick={toggle} className="input-flush flex w-full items-center justify-between gap-2 text-xs">
-                  <PriorityFlag priority={task.priority} />
-                  <Icon.Caret size={12} className="text-ink-subtle" />
-                </button>
-              )}
-            >
-              {(close) =>
-                PRIORITY_ORDER.map((p) => (
-                  <PopoverItem
-                    key={p}
-                    active={p === task.priority}
-                    onClick={() => {
-                      if (p !== task.priority) onPatch({ priority: p });
-                      close();
-                    }}
-                  >
-                    {PRIORITY_META[p].label}
-                  </PopoverItem>
-                ))
-              }
-            </Popover>
+            {canEdit ? (
+              <Popover
+                trigger={({ toggle }) => (
+                  <button onClick={toggle} className="input-flush flex w-full items-center justify-between gap-2 text-xs">
+                    <PriorityFlag priority={task.priority} />
+                    <Icon.Caret size={12} className="text-ink-subtle" />
+                  </button>
+                )}
+              >
+                {(close) =>
+                  PRIORITY_ORDER.map((p) => (
+                    <PopoverItem
+                      key={p}
+                      active={p === task.priority}
+                      onClick={() => {
+                        if (p !== task.priority) onPatch({ priority: p });
+                        close();
+                      }}
+                    >
+                      {PRIORITY_META[p].label}
+                    </PopoverItem>
+                  ))
+                }
+              </Popover>
+            ) : (
+              <div className="px-2 py-1.5">
+                <PriorityFlag priority={task.priority} />
+              </div>
+            )}
           </FieldRow>
 
           <FieldRow label="Assignees">
-            <Popover
-              trigger={({ toggle }) => (
-                <button onClick={toggle} className="input-flush flex w-full items-center justify-between gap-2 text-xs">
-                  <span className="flex items-center gap-2 truncate">
-                    {task.assignees.length === 0 ? (
-                      <span className="text-ink-subtle">Unassigned</span>
-                    ) : task.assignees.length === 1 ? (
-                      <>
-                        <Avatar
-                          name={task.assignees[0].name}
-                          color={task.assignees[0].avatarColor}
-                          size="xs"
-                        />
-                        <span className="truncate text-ink">{task.assignees[0].name}</span>
-                      </>
-                    ) : (
-                      <>
-                        <AvatarStack users={task.assignees} max={4} size="xs" />
-                        <span className="text-ink">{task.assignees.length} assignees</span>
-                      </>
-                    )}
-                  </span>
-                  <Icon.Caret size={12} className="text-ink-subtle" />
-                </button>
-              )}
-            >
-              {() => (
-                <>
-                  {users.map((u) => {
-                    const active = assigneeIds.has(u.id);
-                    return (
-                      <PopoverItem
-                        key={u.id}
-                        active={active}
-                        onClick={() => {
-                          const next = active
-                            ? task.assignees.filter((a) => a.id !== u.id).map((a) => a.id)
-                            : [...task.assignees.map((a) => a.id), u.id];
-                          onPatch({ assigneeIds: next });
-                        }}
-                        icon={
-                          <span className="inline-flex h-4 w-4 items-center justify-center">
-                            {active ? <Icon.Check size={12} /> : null}
+            {canEdit ? (
+              <Popover
+                trigger={({ toggle }) => (
+                  <button onClick={toggle} className="input-flush flex w-full items-center justify-between gap-2 text-xs">
+                    <AssigneesSummary assignees={visibleAssignees} />
+                    <Icon.Caret size={12} className="text-ink-subtle" />
+                  </button>
+                )}
+              >
+                {() => (
+                  <>
+                    {users.map((u) => {
+                      const active = assigneeSet.has(u.id);
+                      return (
+                        <PopoverItem
+                          key={u.id}
+                          active={active}
+                          onClick={() => toggleAssignee(u.id)}
+                          icon={
+                            <span className="inline-flex h-4 w-4 items-center justify-center">
+                              {active ? <Icon.Check size={12} /> : null}
+                            </span>
+                          }
+                        >
+                          <span className="flex items-center gap-2">
+                            <Avatar name={u.name} color={u.avatarColor} size="xs" />
+                            {u.name}
                           </span>
-                        }
-                      >
-                        <span className="flex items-center gap-2">
-                          <Avatar name={u.name} color={u.avatarColor} size="xs" />
-                          {u.name}
-                        </span>
-                      </PopoverItem>
-                    );
-                  })}
-                </>
-              )}
-            </Popover>
+                        </PopoverItem>
+                      );
+                    })}
+                  </>
+                )}
+              </Popover>
+            ) : (
+              <div className="px-2 py-1.5">
+                <AssigneesSummary assignees={visibleAssignees} />
+              </div>
+            )}
           </FieldRow>
 
           <FieldRow label="Due date">
@@ -424,7 +459,9 @@ function OverviewTab({
                 const v = e.target.value;
                 onPatch({ dueDate: v ? new Date(v).toISOString() : null });
               }}
-              className="input-flush text-xs"
+              readOnly={!canEdit}
+              disabled={!canEdit}
+              className={cn('input-flush text-xs', !canEdit && 'cursor-default opacity-70')}
             />
           </FieldRow>
 
@@ -433,6 +470,7 @@ function OverviewTab({
               projectId={task.projectId}
               labels={labels}
               selected={task.labels}
+              canEdit={canEdit}
               onChange={(ids) => onPatch({ labelIds: ids })}
               onLabelsChanged={onLabelsChanged}
             />
@@ -446,13 +484,43 @@ function OverviewTab({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           onBlur={commitDescription}
-          placeholder="Add more context about this task…"
+          readOnly={!canEdit}
+          placeholder={canEdit ? 'Add more context about this task…' : 'No description'}
           className="input min-h-[120px] resize-y bg-surface text-sm leading-relaxed"
         />
       </section>
 
-      <SubtasksSection task={task} users={users} onChanged={() => onPatch({})} />
+      <SubtasksSection
+        task={task}
+        users={users}
+        canEdit={canEdit}
+        onChanged={() => onPatch({})}
+      />
     </div>
+  );
+}
+
+function AssigneesSummary({ assignees }: { assignees: UserLite[] }) {
+  if (assignees.length === 0) {
+    return <span className="text-ink-subtle">Unassigned</span>;
+  }
+  if (assignees.length === 1) {
+    return (
+      <span className="flex items-center gap-2 truncate">
+        <Avatar
+          name={assignees[0].name}
+          color={assignees[0].avatarColor}
+          size="xs"
+        />
+        <span className="truncate text-ink">{assignees[0].name}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-2 truncate">
+      <AvatarStack users={assignees} max={4} size="xs" />
+      <span className="text-ink">{assignees.length} assignees</span>
+    </span>
   );
 }
 
@@ -487,12 +555,14 @@ function LabelsPicker({
   projectId,
   labels,
   selected,
+  canEdit,
   onChange,
   onLabelsChanged,
 }: {
   projectId: string;
   labels: Label[];
   selected: Label[];
+  canEdit: boolean;
   onChange: (ids: string[]) => void;
   onLabelsChanged: () => void;
 }) {
@@ -525,9 +595,14 @@ function LabelsPicker({
           <LabelChip
             key={l.id}
             label={l}
-            onRemove={() => onChange(selected.filter((x) => x.id !== l.id).map((x) => x.id))}
+            onRemove={
+              canEdit
+                ? () => onChange(selected.filter((x) => x.id !== l.id).map((x) => x.id))
+                : undefined
+            }
           />
         ))}
+        {canEdit && (
         <Popover
           trigger={({ toggle }) => (
             <button
@@ -600,6 +675,7 @@ function LabelsPicker({
             </>
           )}
         </Popover>
+        )}
       </div>
     </div>
   );
@@ -608,10 +684,12 @@ function LabelsPicker({
 function SubtasksSection({
   task,
   users,
+  canEdit,
   onChanged,
 }: {
   task: Task;
   users: UserLite[];
+  canEdit: boolean;
   onChanged: () => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
@@ -681,6 +759,7 @@ function SubtasksSection({
                   ? 'border-leaf-400 bg-leaf-400 text-paper'
                   : 'border-line-strong bg-surface hover:border-ink-muted',
               )}
+              title="Toggle done"
             >
               {sub.status === 'DONE' && <Icon.Check size={10} />}
             </button>
@@ -774,12 +853,14 @@ function SubtasksSection({
           </button>
         </form>
       ) : (
-        <button
-          onClick={() => setAddOpen(true)}
-          className="mt-2 inline-flex items-center gap-1 text-xs text-ink-muted hover:text-ink"
-        >
-          <Icon.Plus size={12} /> Add subtask
-        </button>
+        canEdit && (
+          <button
+            onClick={() => setAddOpen(true)}
+            className="mt-2 inline-flex items-center gap-1 text-xs text-ink-muted hover:text-ink"
+          >
+            <Icon.Plus size={12} /> Add subtask
+          </button>
+        )
       )}
     </section>
   );

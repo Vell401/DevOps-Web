@@ -25,7 +25,9 @@ export class LabelsService {
   }
 
   async create(projectId: string, userId: string, dto: CreateLabelDto) {
-    await this.projects.getAccessible(projectId, userId);
+    // Owner-only: members can attach existing labels via task update path,
+    // but only the owner manages the label list itself.
+    await this.projects.getOwned(projectId, userId);
     try {
       return await this.prisma.label.create({
         data: {
@@ -51,7 +53,7 @@ export class LabelsService {
       select: { id: true, projectId: true },
     });
     if (!label) throw new NotFoundException('Label not found');
-    await this.projects.assertAccessible(label.projectId, userId);
+    await this.projects.getOwned(label.projectId, userId);
     return this.prisma.label.update({
       where: { id },
       data: {
@@ -67,7 +69,7 @@ export class LabelsService {
       select: { id: true, projectId: true },
     });
     if (!label) throw new NotFoundException('Label not found');
-    await this.projects.assertAccessible(label.projectId, userId);
+    await this.projects.getOwned(label.projectId, userId);
     await this.prisma.label.delete({ where: { id } });
   }
 }

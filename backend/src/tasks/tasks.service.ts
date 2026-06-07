@@ -161,6 +161,20 @@ export class TasksService {
 
   async create(projectId: string, userId: string, dto: CreateTaskDto) {
     await this.projects.getAccessible(projectId, userId);
+
+    // Permission: members can create tasks but only with themselves as assignee
+    // (or unassigned). Owners can assign anyone.
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { ownerId: true },
+    });
+    const isOwner = project?.ownerId === userId;
+    if (!isOwner && dto.assigneeIds && dto.assigneeIds.some((id) => id !== userId)) {
+      throw new ForbiddenException(
+        'Members can only assign themselves on new tasks',
+      );
+    }
+
     const assigneeIds = dto.assigneeIds ?? [];
     await this.assertUsersExist(assigneeIds);
     await this.assertSameProject(projectId, 'Parent task', dto.parentId, 'task');
@@ -212,6 +226,29 @@ export class TasksService {
 
   async update(id: string, userId: string, dto: UpdateTaskDto) {
     const before = await this.get(id, userId);
+    const isOwner = before.project.ownerId === userId;
+
+    // Permission: members can only change status and board position.
+    // Title, description, priority, assignees, labels, due date, parent are
+    // owner-only. This matches the UI: pickers are disabled for non-owners.
+    if (!isOwner) {
+      const ownerOnly: (keyof UpdateTaskDto)[] = [
+        'title',
+        'description',
+        'priority',
+        'dueDate',
+        'assigneeIds',
+        'parentId',
+        'labelIds',
+      ];
+      for (const k of ownerOnly) {
+        if ((dto as Record<string, unknown>)[k as string] !== undefined) {
+          throw new ForbiddenException(
+            `Only the project owner can change "${String(k)}"`,
+          );
+        }
+      }
+    }
 
     if (dto.assigneeIds) await this.assertUsersExist(dto.assigneeIds);
     if (dto.parentId !== undefined) {
@@ -397,6 +434,9 @@ export class TasksService {
 
   async remove(id: string, userId: string): Promise<void> {
     const task = await this.get(id, userId);
+    if (task.project.ownerId !== userId) {
+      throw new ForbiddenException('Only the project owner can delete tasks');
+    }
     const formerAssignees = task.assignees.map((a) => a.id);
     await this.prisma.task.delete({ where: { id } });
     await this.projects.syncClosureState(task.projectId);
