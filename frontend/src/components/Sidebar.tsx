@@ -12,14 +12,33 @@ interface Props {
   refreshKey: number;
 }
 
+const CLOSED_EXPANDED_KEY = 'tracker.sidebar.closedExpanded';
+
+function readClosedExpanded(): boolean {
+  try {
+    return localStorage.getItem(CLOSED_EXPANDED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export function Sidebar({ onCreateProject, refreshKey }: Props) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [closed, setClosed] = useState<Project[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [closedExpanded, setClosedExpanded] = useState(false);
+  // Persist Closed-section open/closed across reloads.
+  const [closedExpanded, setClosedExpanded] = useState<boolean>(readClosedExpanded);
   const [loadingClosed, setLoadingClosed] = useState(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CLOSED_EXPANDED_KEY, String(closedExpanded));
+    } catch {
+      // Ignore quota / privacy-mode errors.
+    }
+  }, [closedExpanded]);
 
   useEffect(() => {
     let mounted = true;

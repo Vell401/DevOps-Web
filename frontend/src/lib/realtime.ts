@@ -27,10 +27,12 @@ function getSocket(): Socket | null {
   const token = tokenStorage.getAccess();
   if (!token) return null;
 
-  if (singleton && singleton.connected) return singleton;
-  if (singleton) {
-    singleton.disconnect();
-  }
+  // Always return the existing instance if any — even mid-handshake. socket.io
+  // buffers emits/listeners until connection completes. The previous version
+  // recreated the socket while it was still connecting, which silently dropped
+  // listeners attached by earlier consumers (Layout's projects-changed handler
+  // was killed when ProjectDetailPage mounted a beat later).
+  if (singleton) return singleton;
 
   // Origin-relative — Vite dev server proxies, prod nginx forwards /api/socket.io.
   singleton = io({

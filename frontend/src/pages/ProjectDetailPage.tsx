@@ -114,6 +114,11 @@ export function ProjectDetailPage() {
     try {
       await tasksApi.update(taskIdToMove, { status });
       bumpActivity();
+      // The status change may have triggered auto-close (or auto-reopen). The
+      // socket projects-changed event will arrive too, but we re-fetch project
+      // core directly so the local user sees the banner update without lag.
+      void reloadCore();
+      reloadProjects();
     } catch {
       toast.push('Could not move task', 'error');
       setTasks((prev) =>
@@ -161,7 +166,8 @@ export function ProjectDetailPage() {
   const isOwner = !!project && project.ownerId === user?.id;
 
   // Realtime: merge incoming task changes from other clients into local state
-  // and bump activity so the dashboard refreshes.
+  // and bump activity so the dashboard refreshes. Also re-fetch project core
+  // because the task change may have flipped closedAt.
   useProjectRealtime(project?.id, {
     'task-upserted': (incoming) => {
       setTasks((prev) => {
@@ -172,10 +178,12 @@ export function ProjectDetailPage() {
         return next;
       });
       bumpActivity();
+      void reloadCore();
     },
     'task-deleted': ({ taskId }) => {
       setTasks((prev) => prev.filter((t) => t.id !== taskId));
       bumpActivity();
+      void reloadCore();
     },
     'comment-added': () => {
       bumpActivity();
