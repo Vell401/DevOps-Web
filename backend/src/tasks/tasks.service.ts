@@ -74,7 +74,7 @@ export class TasksService {
   }
 
   async listByProject(projectId: string, userId: string, query: QueryTasksDto) {
-    await this.projects.getOwned(projectId, userId);
+    await this.projects.getAccessible(projectId, userId);
 
     const where: Prisma.TaskWhereInput = {
       projectId,
@@ -121,12 +121,30 @@ export class TasksService {
       },
     });
     if (!task) throw new NotFoundException('Task not found');
-    if (task.project.ownerId !== userId) throw new ForbiddenException();
+    if (task.project.ownerId !== userId) {
+      // Membership: any user with at least one assigned task in this project
+      // can read every task in it. Matches projects.service.getAccessible.
+      const isMember = await this.prisma.task.findFirst({
+        where: { projectId: task.projectId, assigneeId: userId },
+        select: { id: true },
+      });
+      if (!isMember) throw new ForbiddenException();
+    }
     return task;
   }
 
+  private async notifyProjectMembers(
+    projectId: string,
+    extraIds: (string | null | undefined)[] = [],
+  ) {
+    const members = await this.projects.memberIds(projectId);
+    const ids = new Set<string>(members);
+    for (const e of extraIds) if (e) ids.add(e);
+    this.realtime.emitProjectsChangedForUsers(Array.from(ids));
+  }
+
   async create(projectId: string, userId: string, dto: CreateTaskDto) {
-    await this.projects.getOwned(projectId, userId);
+    await this.projects.getAccessible(projectId, userId);
     await this.assertAssigneeExists(dto.assigneeId);
     await this.assertSameProject(projectId, 'Parent task', dto.parentId, 'task');
     if (dto.labelIds?.length) {
@@ -167,7 +185,10 @@ export class TasksService {
       return task;
     });
 
+    await this.projects.syncClosureState(projectId);
     this.realtime.emitTaskUpserted(projectId, result);
+    // New assignment may add the project to that user's sidebar.
+    await this.notifyProjectMembers(projectId, [dto.assigneeId, userId]);
     return result;
   }
 
@@ -325,13 +346,22 @@ export class TasksService {
       return after;
     });
 
+    await this.projects.syncClosureState(before.projectId);
     this.realtime.emitTaskUpserted(before.projectId, result);
+    // Assignment may have moved between users → notify old + new + actor.
+    await this.notifyProjectMembers(before.projectId, [
+      before.assigneeId,
+      dto.assigneeId,
+      userId,
+    ]);
     return result;
   }
 
   async remove(id: string, userId: string): Promise<void> {
     const task = await this.get(id, userId);
     await this.prisma.task.delete({ where: { id } });
+    await this.projects.syncClosureState(task.projectId);
     this.realtime.emitTaskDeleted(task.projectId, id);
+    await this.notifyProjectMembers(task.projectId, [task.assigneeId, userId]);
   }
 }

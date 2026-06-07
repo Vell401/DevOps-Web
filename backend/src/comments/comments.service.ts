@@ -7,6 +7,7 @@ import { ActivityType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TasksService } from '../tasks/tasks.service';
 import { ActivityService } from '../activity/activity.service';
+import { ProjectsService } from '../projects/projects.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { CreateCommentDto } from './dto/create-comment.dto';
 
@@ -18,6 +19,7 @@ export class CommentsService {
     private readonly prisma: PrismaService,
     private readonly tasks: TasksService,
     private readonly activity: ActivityService,
+    private readonly projects: ProjectsService,
     private readonly realtime: RealtimeGateway,
   ) {}
 
@@ -61,6 +63,9 @@ export class CommentsService {
     });
 
     this.realtime.emitCommentAdded(task.projectId, taskId, comment);
+    // Surface comment activity into the global inbox of all project members.
+    const members = await this.projects.memberIds(task.projectId);
+    this.realtime.emitProjectsChangedForUsers([...members, userId]);
     return comment;
   }
 

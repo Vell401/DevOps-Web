@@ -26,6 +26,7 @@ import { useToast } from '../ui/Toast';
 import { Popover, PopoverItem } from '../ui/Popover';
 import { timeAgo } from '../lib/format';
 import { useProjectRealtime } from '../lib/realtime';
+import { useAuth } from '../auth/AuthContext';
 import { cn } from '../lib/cn';
 import type { LayoutContext } from '../components/Layout';
 
@@ -34,6 +35,7 @@ type View = 'board' | 'list' | 'activity';
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { reloadProjects } = useOutletContext<LayoutContext>();
+  const { user } = useAuth();
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [users, setUsers] = useState<UserLite[]>([]);
@@ -154,6 +156,7 @@ export function ProjectDetailPage() {
   const unfinishedCount = tasks.filter((t) => t.status !== 'DONE' && !t.parentId).length;
   const canClose = unfinishedCount === 0 && tasks.length > 0;
   const isClosed = !!project?.closedAt;
+  const isOwner = !!project && project.ownerId === user?.id;
 
   // Realtime: merge incoming task changes from other clients into local state
   // and bump activity so the dashboard refreshes.
@@ -226,51 +229,53 @@ export function ProjectDetailPage() {
                 <Icon.Plus size={14} /> New task
               </button>
             )}
-            <Popover
-              align="end"
-              trigger={({ toggle }) => (
-                <button
-                  onClick={toggle}
-                  className="btn-secondary h-8 w-8 px-0"
-                  aria-label="Project menu"
-                >
-                  <Icon.Dots size={14} />
-                </button>
-              )}
-            >
-              {(close) =>
-                isClosed ? (
-                  <PopoverItem
-                    icon={<Icon.ArrowLeft size={13} />}
-                    onClick={() => {
-                      close();
-                      void onReopenProject();
-                    }}
+            {isOwner && (
+              <Popover
+                align="end"
+                trigger={({ toggle }) => (
+                  <button
+                    onClick={toggle}
+                    className="btn-secondary h-8 w-8 px-0"
+                    aria-label="Project menu"
                   >
-                    Reopen project
-                  </PopoverItem>
-                ) : (
-                  <PopoverItem
-                    icon={<Icon.Check size={13} />}
-                    onClick={() => {
-                      close();
-                      if (canClose) void onCloseProject();
-                    }}
-                  >
-                    <span className={cn(!canClose && 'text-ink-subtle')}>
-                      Close project
-                      {!canClose && (
-                        <span className="ml-2 text-[11px] text-ink-subtle">
-                          {tasks.length === 0
-                            ? '· no tasks'
-                            : `· ${unfinishedCount} unfinished`}
-                        </span>
-                      )}
-                    </span>
-                  </PopoverItem>
-                )
-              }
-            </Popover>
+                    <Icon.Dots size={14} />
+                  </button>
+                )}
+              >
+                {(close) =>
+                  isClosed ? (
+                    <PopoverItem
+                      icon={<Icon.ArrowLeft size={13} />}
+                      onClick={() => {
+                        close();
+                        void onReopenProject();
+                      }}
+                    >
+                      Reopen project
+                    </PopoverItem>
+                  ) : (
+                    <PopoverItem
+                      icon={<Icon.Check size={13} />}
+                      onClick={() => {
+                        close();
+                        if (canClose) void onCloseProject();
+                      }}
+                    >
+                      <span className={cn(!canClose && 'text-ink-subtle')}>
+                        Close project
+                        {!canClose && (
+                          <span className="ml-2 text-[11px] text-ink-subtle">
+                            {tasks.length === 0
+                              ? '· no tasks'
+                              : `· ${unfinishedCount} unfinished`}
+                          </span>
+                        )}
+                      </span>
+                    </PopoverItem>
+                  )
+                }
+              </Popover>
+            )}
           </>
         }
       />
@@ -281,15 +286,17 @@ export function ProjectDetailPage() {
           <span className="flex-1 text-ink">
             This project was closed {project.closedAt ? timeAgo(project.closedAt) : ''}.
             <span className="ml-1 text-ink-muted">
-              Reopen to make changes.
+              {isOwner ? 'Reopen to make changes.' : 'Only the owner can reopen.'}
             </span>
           </span>
-          <button
-            onClick={() => void onReopenProject()}
-            className="btn-ghost h-7 px-2 text-xs"
-          >
-            Reopen
-          </button>
+          {isOwner && (
+            <button
+              onClick={() => void onReopenProject()}
+              className="btn-ghost h-7 px-2 text-xs"
+            >
+              Reopen
+            </button>
+          )}
         </div>
       )}
 

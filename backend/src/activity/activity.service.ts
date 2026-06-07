@@ -60,19 +60,27 @@ export class ActivityService {
   }
 
   /**
-   * Global inbox feed: every event across all projects owned by the user.
+   * Global inbox feed: every event across all projects the user has access
+   * to (owner OR has at least one assigned task there).
    * Optional filters: actorId, type, projectId.
    */
   listForUser(
-    ownerId: string,
+    userId: string,
     opts: { actorId?: string; type?: ActivityType; projectId?: string; limit?: number } = {},
   ) {
+    const projectAccess: Prisma.ProjectWhereInput = {
+      OR: [
+        { ownerId: userId },
+        { tasks: { some: { assigneeId: userId } } },
+      ],
+    };
     const where: Prisma.ActivityWhereInput = {
-      task: { project: { ownerId } },
+      task: opts.projectId
+        ? { projectId: opts.projectId, project: projectAccess }
+        : { project: projectAccess },
     };
     if (opts.actorId) where.actorId = opts.actorId;
     if (opts.type) where.type = opts.type;
-    if (opts.projectId) where.task = { projectId: opts.projectId, project: { ownerId } };
 
     return this.prisma.activity.findMany({
       where,

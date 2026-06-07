@@ -1,6 +1,5 @@
 import {
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -18,7 +17,7 @@ export class LabelsService {
   ) {}
 
   async list(projectId: string, userId: string) {
-    await this.projects.getOwned(projectId, userId);
+    await this.projects.getAccessible(projectId, userId);
     return this.prisma.label.findMany({
       where: { projectId },
       orderBy: { createdAt: 'asc' },
@@ -26,7 +25,7 @@ export class LabelsService {
   }
 
   async create(projectId: string, userId: string, dto: CreateLabelDto) {
-    await this.projects.getOwned(projectId, userId);
+    await this.projects.getAccessible(projectId, userId);
     try {
       return await this.prisma.label.create({
         data: {
@@ -49,10 +48,10 @@ export class LabelsService {
   async update(id: string, userId: string, dto: UpdateLabelDto) {
     const label = await this.prisma.label.findUnique({
       where: { id },
-      include: { project: true },
+      select: { id: true, projectId: true },
     });
     if (!label) throw new NotFoundException('Label not found');
-    if (label.project.ownerId !== userId) throw new ForbiddenException();
+    await this.projects.assertAccessible(label.projectId, userId);
     return this.prisma.label.update({
       where: { id },
       data: {
@@ -65,10 +64,10 @@ export class LabelsService {
   async remove(id: string, userId: string): Promise<void> {
     const label = await this.prisma.label.findUnique({
       where: { id },
-      include: { project: true },
+      select: { id: true, projectId: true },
     });
     if (!label) throw new NotFoundException('Label not found');
-    if (label.project.ownerId !== userId) throw new ForbiddenException();
+    await this.projects.assertAccessible(label.projectId, userId);
     await this.prisma.label.delete({ where: { id } });
   }
 }

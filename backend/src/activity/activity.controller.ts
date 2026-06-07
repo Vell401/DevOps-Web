@@ -31,10 +31,18 @@ export class ActivityController {
   private async assertTaskAccess(taskId: string, userId: string): Promise<void> {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
-      select: { project: { select: { ownerId: true } } },
+      select: {
+        projectId: true,
+        project: { select: { ownerId: true } },
+      },
     });
     if (!task) throw new NotFoundException('Task not found');
-    if (task.project.ownerId !== userId) throw new ForbiddenException();
+    if (task.project.ownerId === userId) return;
+    const member = await this.prisma.task.findFirst({
+      where: { projectId: task.projectId, assigneeId: userId },
+      select: { id: true },
+    });
+    if (!member) throw new ForbiddenException();
   }
 
   @Get('tasks/:taskId/activity')
@@ -51,7 +59,7 @@ export class ActivityController {
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    await this.projects.getOwned(projectId, user.userId);
+    await this.projects.getAccessible(projectId, user.userId);
     return this.activity.listForProject(projectId);
   }
 
@@ -60,7 +68,7 @@ export class ActivityController {
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    await this.projects.getOwned(projectId, user.userId);
+    await this.projects.getAccessible(projectId, user.userId);
     return this.activity.statsForProject(projectId);
   }
 

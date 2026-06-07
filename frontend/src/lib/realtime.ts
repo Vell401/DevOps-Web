@@ -9,8 +9,16 @@ interface ServerEvents {
   'comment-added': (payload: { taskId: string; comment: Comment }) => void;
 }
 
+interface UserEvents {
+  'projects-changed': () => void;
+}
+
 type Handlers = {
   [K in keyof ServerEvents]?: ServerEvents[K];
+};
+
+type UserHandlers = {
+  [K in keyof UserEvents]?: UserEvents[K];
 };
 
 let singleton: Socket | null = null;
@@ -75,6 +83,31 @@ export function useProjectRealtime(
     // not in the deps — consumers should keep them stable (useCallback).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+}
+
+/**
+ * Subscribe to user-scoped events (projects-changed when assignments shift,
+ * etc). No project context — the backend auto-joins the user-room on connect.
+ */
+export function useUserRealtime(handlers: UserHandlers) {
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const entries = Object.entries(handlers) as Array<
+      [keyof UserEvents, UserEvents[keyof UserEvents]]
+    >;
+    for (const [ev, fn] of entries) {
+      socket.on(ev as string, fn as (...args: unknown[]) => void);
+    }
+    return () => {
+      for (const [ev, fn] of entries) {
+        socket.off(ev as string, fn as (...args: unknown[]) => void);
+      }
+    };
+    // Handlers are intentionally not in deps — pass stable callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }
 
 export function disconnectRealtime() {

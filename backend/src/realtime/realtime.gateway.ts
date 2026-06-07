@@ -68,6 +68,9 @@ export class RealtimeGateway
       });
       client.data.userId = payload.sub;
       client.data.email = payload.email;
+      // Join a personal room so the backend can push user-scoped events
+      // (e.g. "projects-changed" when assignment makes a new project visible).
+      await client.join(userRoom(payload.sub));
     } catch {
       client.disconnect();
     }
@@ -115,8 +118,24 @@ export class RealtimeGateway
       .to(roomFor(projectId))
       .emit('comment-added', { taskId, comment });
   }
+
+  /**
+   * Notify a set of users that their list of visible projects may have
+   * changed (new assignment, project closed, etc). The frontend reacts by
+   * re-fetching the sidebar.
+   */
+  emitProjectsChangedForUsers(userIds: string[]) {
+    const distinct = [...new Set(userIds)];
+    for (const uid of distinct) {
+      this.server.to(userRoom(uid)).emit('projects-changed');
+    }
+  }
 }
 
 function roomFor(projectId: string): string {
   return `project:${projectId}`;
+}
+
+function userRoom(userId: string): string {
+  return `user:${userId}`;
 }
