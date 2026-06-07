@@ -1,5 +1,5 @@
 import type { Task } from '../../types';
-import { Avatar } from '../../ui/Avatar';
+import { AvatarStack } from '../../ui/Avatar';
 import { StatusBadge } from '../../ui/StatusBadge';
 import { PriorityFlag } from '../../ui/PriorityFlag';
 import { LabelChip } from '../../ui/LabelChip';
@@ -86,16 +86,14 @@ export function TaskListView({ tasks, projectKey, onOpen }: Props) {
                     </div>
                   </Td>
                   <Td>
-                    {t.assignee ? (
+                    {t.assignees.length > 0 ? (
                       <span className="inline-flex items-center gap-2">
-                        <Avatar
-                          name={t.assignee.name}
-                          color={t.assignee.avatarColor}
-                          size="xs"
-                        />
-                        <span className="text-xs text-ink line-clamp-1">
-                          {t.assignee.name}
-                        </span>
+                        <AvatarStack users={t.assignees} size="xs" max={3} />
+                        {t.assignees.length === 1 && (
+                          <span className="text-xs text-ink line-clamp-1">
+                            {t.assignees[0].name}
+                          </span>
+                        )}
                       </span>
                     ) : (
                       <span className="text-xs text-ink-subtle">Unassigned</span>

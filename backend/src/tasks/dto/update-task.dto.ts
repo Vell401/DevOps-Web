@@ -10,14 +10,15 @@ import {
 import { CreateTaskDto } from './create-task.dto';
 
 class UpdateTaskBase extends PartialType(
-  OmitType(CreateTaskDto, ['assigneeId', 'parentId', 'dueDate', 'labelIds'] as const),
+  OmitType(CreateTaskDto, ['parentId', 'dueDate', 'labelIds', 'assigneeIds'] as const),
 ) {}
 
 export class UpdateTaskDto extends UpdateTaskBase {
   @IsOptional()
-  @ValidateIf((_, v) => v !== null)
-  @IsUUID()
-  assigneeId?: string | null;
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID(undefined, { each: true })
+  assigneeIds?: string[];
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null)

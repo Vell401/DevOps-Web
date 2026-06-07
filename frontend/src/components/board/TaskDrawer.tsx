@@ -14,7 +14,7 @@ import {
   type TaskBody,
 } from '../../api/endpoints';
 import { Drawer } from '../../ui/Drawer';
-import { Avatar } from '../../ui/Avatar';
+import { Avatar, AvatarStack } from '../../ui/Avatar';
 import { LabelChip } from '../../ui/LabelChip';
 import { Icon } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
@@ -289,7 +289,7 @@ function OverviewTab({
     if ((task.description ?? '') !== next) onPatch({ description: next || null });
   };
 
-  const assignee = users.find((u) => u.id === task.assigneeId);
+  const assigneeIds = new Set(task.assignees.map((a) => a.id));
 
   return (
     <div className="space-y-5">
@@ -357,51 +357,60 @@ function OverviewTab({
             </Popover>
           </FieldRow>
 
-          <FieldRow label="Assignee">
+          <FieldRow label="Assignees">
             <Popover
               trigger={({ toggle }) => (
                 <button onClick={toggle} className="input-flush flex w-full items-center justify-between gap-2 text-xs">
                   <span className="flex items-center gap-2 truncate">
-                    {assignee ? (
+                    {task.assignees.length === 0 ? (
+                      <span className="text-ink-subtle">Unassigned</span>
+                    ) : task.assignees.length === 1 ? (
                       <>
                         <Avatar
-                          name={assignee.name}
-                          color={assignee.avatarColor}
+                          name={task.assignees[0].name}
+                          color={task.assignees[0].avatarColor}
                           size="xs"
                         />
-                        <span className="truncate text-ink">{assignee.name}</span>
+                        <span className="truncate text-ink">{task.assignees[0].name}</span>
                       </>
                     ) : (
-                      <span className="text-ink-subtle">Unassigned</span>
+                      <>
+                        <AvatarStack users={task.assignees} max={4} size="xs" />
+                        <span className="text-ink">{task.assignees.length} assignees</span>
+                      </>
                     )}
                   </span>
                   <Icon.Caret size={12} className="text-ink-subtle" />
                 </button>
               )}
             >
-              {(close) => (
+              {() => (
                 <>
-                  <PopoverItem
-                    onClick={() => {
-                      onPatch({ assigneeId: null });
-                      close();
-                    }}
-                  >
-                    Unassigned
-                  </PopoverItem>
-                  {users.map((u) => (
-                    <PopoverItem
-                      key={u.id}
-                      active={u.id === task.assigneeId}
-                      onClick={() => {
-                        if (u.id !== task.assigneeId) onPatch({ assigneeId: u.id });
-                        close();
-                      }}
-                      icon={<Avatar name={u.name} color={u.avatarColor} size="xs" />}
-                    >
-                      {u.name}
-                    </PopoverItem>
-                  ))}
+                  {users.map((u) => {
+                    const active = assigneeIds.has(u.id);
+                    return (
+                      <PopoverItem
+                        key={u.id}
+                        active={active}
+                        onClick={() => {
+                          const next = active
+                            ? task.assignees.filter((a) => a.id !== u.id).map((a) => a.id)
+                            : [...task.assignees.map((a) => a.id), u.id];
+                          onPatch({ assigneeIds: next });
+                        }}
+                        icon={
+                          <span className="inline-flex h-4 w-4 items-center justify-center">
+                            {active ? <Icon.Check size={12} /> : null}
+                          </span>
+                        }
+                      >
+                        <span className="flex items-center gap-2">
+                          <Avatar name={u.name} color={u.avatarColor} size="xs" />
+                          {u.name}
+                        </span>
+                      </PopoverItem>
+                    );
+                  })}
                 </>
               )}
             </Popover>
@@ -607,7 +616,7 @@ function SubtasksSection({
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const [title, setTitle] = useState('');
-  const [assigneeId, setAssigneeId] = useState<string | undefined>();
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -620,10 +629,10 @@ function SubtasksSection({
       await tasksApi.create(task.projectId, {
         title: t,
         parentId: task.id,
-        assigneeId: assigneeId ?? undefined,
+        assigneeIds: assigneeIds.length ? assigneeIds : undefined,
       });
       setTitle('');
-      setAssigneeId(undefined);
+      setAssigneeIds([]);
       setAddOpen(false);
       onChanged();
       toast.push('Subtask added', 'success');
@@ -685,12 +694,8 @@ function SubtasksSection({
             >
               {sub.title}
             </span>
-            {sub.assignee && (
-              <Avatar
-                name={sub.assignee.name}
-                color={sub.assignee.avatarColor}
-                size="xs"
-              />
+            {sub.assignees.length > 0 && (
+              <AvatarStack users={sub.assignees} max={3} size="xs" />
             )}
             <StatusBadge status={sub.status} variant="inline" />
           </li>
@@ -717,37 +722,43 @@ function SubtasksSection({
                 type="button"
                 onClick={toggle}
                 className="btn-secondary h-7 px-2 text-xs"
-                title="Assignee"
+                title="Assignees"
               >
                 <Icon.User size={12} />
-                {assigneeId
-                  ? users.find((u) => u.id === assigneeId)?.name?.split(' ')[0] ?? '—'
-                  : '—'}
+                {assigneeIds.length === 0
+                  ? '—'
+                  : assigneeIds.length === 1
+                    ? users.find((u) => u.id === assigneeIds[0])?.name?.split(' ')[0] ?? '—'
+                    : `${assigneeIds.length}`}
               </button>
             )}
           >
-            {(close) => (
+            {() => (
               <>
-                <PopoverItem
-                  onClick={() => {
-                    setAssigneeId(undefined);
-                    close();
-                  }}
-                >
-                  Unassigned
-                </PopoverItem>
-                {users.map((u) => (
-                  <PopoverItem
-                    key={u.id}
-                    onClick={() => {
-                      setAssigneeId(u.id);
-                      close();
-                    }}
-                    icon={<Avatar name={u.name} color={u.avatarColor} size="xs" />}
-                  >
-                    {u.name}
-                  </PopoverItem>
-                ))}
+                {users.map((u) => {
+                  const active = assigneeIds.includes(u.id);
+                  return (
+                    <PopoverItem
+                      key={u.id}
+                      active={active}
+                      onClick={() =>
+                        setAssigneeIds((prev) =>
+                          active ? prev.filter((x) => x !== u.id) : [...prev, u.id],
+                        )
+                      }
+                      icon={
+                        <span className="inline-flex h-4 w-4 items-center justify-center">
+                          {active ? <Icon.Check size={12} /> : null}
+                        </span>
+                      }
+                    >
+                      <span className="flex items-center gap-2">
+                        <Avatar name={u.name} color={u.avatarColor} size="xs" />
+                        {u.name}
+                      </span>
+                    </PopoverItem>
+                  );
+                })}
               </>
             )}
           </Popover>

@@ -1,5 +1,5 @@
 import type { Task } from '../../types';
-import { Avatar } from '../../ui/Avatar';
+import { AvatarStack } from '../../ui/Avatar';
 import { LabelChip } from '../../ui/LabelChip';
 import { PriorityFlag } from '../../ui/PriorityFlag';
 import { Icon } from '../../ui/Icon';
@@ -86,12 +86,8 @@ export function TaskCard({
             </span>
           )}
         </div>
-        {task.assignee ? (
-          <Avatar
-            name={task.assignee.name}
-            color={task.assignee.avatarColor}
-            size="xs"
-          />
+        {task.assignees.length > 0 ? (
+          <AvatarStack users={task.assignees} size="xs" max={3} />
         ) : (
           <span className="text-ink-subtle">unassigned</span>
         )}

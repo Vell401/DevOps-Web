@@ -13,10 +13,12 @@ import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { QueryTasksDto } from './dto/query-tasks.dto';
 
+const USER_LITE = {
+  select: { id: true, name: true, email: true, avatarColor: true },
+} as const;
+
 const TASK_INCLUDE = {
-  assignee: {
-    select: { id: true, name: true, email: true, avatarColor: true },
-  },
+  assignees: USER_LITE,
   labels: true,
   parent: { select: { id: true, number: true, title: true } },
   _count: { select: { subtasks: true, comments: true } },
@@ -31,13 +33,15 @@ export class TasksService {
     private readonly realtime: RealtimeGateway,
   ) {}
 
-  private async assertAssigneeExists(assigneeId: string | undefined | null): Promise<void> {
-    if (!assigneeId) return;
-    const exists = await this.prisma.user.findUnique({
-      where: { id: assigneeId },
+  private async assertUsersExist(ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    const found = await this.prisma.user.findMany({
+      where: { id: { in: ids } },
       select: { id: true },
     });
-    if (!exists) throw new BadRequestException('Assignee not found');
+    if (found.length !== ids.length) {
+      throw new BadRequestException('One or more assignees do not exist');
+    }
   }
 
   private async assertSameProject(
@@ -80,9 +84,12 @@ export class TasksService {
       projectId,
       status: query.status,
       priority: query.priority,
-      assigneeId: query.assigneeId,
     };
 
+    // Filter by a single assignee (UI dropdown picks one user).
+    if (query.assigneeId) {
+      where.assignees = { some: { id: query.assigneeId } };
+    }
     if (query.q) {
       where.title = { contains: query.q, mode: 'insensitive' };
     }
@@ -107,28 +114,37 @@ export class TasksService {
         ...TASK_INCLUDE,
         subtasks: {
           include: {
-            assignee: {
-              select: { id: true, name: true, email: true, avatarColor: true },
-            },
+            assignees: USER_LITE,
             labels: true,
             _count: { select: { subtasks: true, comments: true } },
           },
           orderBy: { createdAt: 'asc' },
         },
         project: {
-          select: { id: true, key: true, name: true, ownerId: true },
+          select: {
+            id: true,
+            key: true,
+            name: true,
+            ownerId: true,
+            members: { select: { id: true } },
+          },
         },
       },
     });
     if (!task) throw new NotFoundException('Task not found');
     if (task.project.ownerId !== userId) {
-      // Membership: any user with at least one assigned task in this project
-      // can read every task in it. Matches projects.service.getAccessible.
-      const isMember = await this.prisma.task.findFirst({
-        where: { projectId: task.projectId, assigneeId: userId },
-        select: { id: true },
-      });
-      if (!isMember) throw new ForbiddenException();
+      const isExplicitMember = task.project.members.some((m) => m.id === userId);
+      if (!isExplicitMember) {
+        // Implicit membership via assignment somewhere in the project.
+        const isAssignedAnywhere = await this.prisma.task.findFirst({
+          where: {
+            projectId: task.projectId,
+            assignees: { some: { id: userId } },
+          },
+          select: { id: true },
+        });
+        if (!isAssignedAnywhere) throw new ForbiddenException();
+      }
     }
     return task;
   }
@@ -145,7 +161,8 @@ export class TasksService {
 
   async create(projectId: string, userId: string, dto: CreateTaskDto) {
     await this.projects.getAccessible(projectId, userId);
-    await this.assertAssigneeExists(dto.assigneeId);
+    const assigneeIds = dto.assigneeIds ?? [];
+    await this.assertUsersExist(assigneeIds);
     await this.assertSameProject(projectId, 'Parent task', dto.parentId, 'task');
     if (dto.labelIds?.length) {
       await this.assertLabelsInProject(projectId, dto.labelIds);
@@ -166,10 +183,12 @@ export class TasksService {
           status: dto.status ?? TaskStatus.TODO,
           priority: dto.priority ?? TaskPriority.MEDIUM,
           position: dto.position ?? 0,
-          assigneeId: dto.assigneeId,
           dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
           parentId: dto.parentId,
           projectId,
+          assignees: assigneeIds.length
+            ? { connect: assigneeIds.map((id) => ({ id })) }
+            : undefined,
           labels: dto.labelIds?.length
             ? { connect: dto.labelIds.map((id) => ({ id })) }
             : undefined,
@@ -187,15 +206,14 @@ export class TasksService {
 
     await this.projects.syncClosureState(projectId);
     this.realtime.emitTaskUpserted(projectId, result);
-    // New assignment may add the project to that user's sidebar.
-    await this.notifyProjectMembers(projectId, [dto.assigneeId, userId]);
+    await this.notifyProjectMembers(projectId, [...assigneeIds, userId]);
     return result;
   }
 
   async update(id: string, userId: string, dto: UpdateTaskDto) {
     const before = await this.get(id, userId);
 
-    if (dto.assigneeId) await this.assertAssigneeExists(dto.assigneeId);
+    if (dto.assigneeIds) await this.assertUsersExist(dto.assigneeIds);
     if (dto.parentId !== undefined) {
       if (dto.parentId === id) throw new BadRequestException('Task cannot be its own parent');
       await this.assertSameProject(before.projectId, 'Parent task', dto.parentId, 'task');
@@ -211,10 +229,8 @@ export class TasksService {
     if (dto.priority !== undefined) data.priority = dto.priority;
     if (dto.position !== undefined) data.position = dto.position;
     if (dto.dueDate !== undefined) data.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
-    if (dto.assigneeId !== undefined) {
-      data.assignee = dto.assigneeId
-        ? { connect: { id: dto.assigneeId } }
-        : { disconnect: true };
+    if (dto.assigneeIds) {
+      data.assignees = { set: dto.assigneeIds.map((aid) => ({ id: aid })) };
     }
     if (dto.parentId !== undefined) {
       data.parent = dto.parentId
@@ -256,17 +272,33 @@ export class TasksService {
           tx,
         );
       }
-      if (dto.assigneeId !== undefined && before.assigneeId !== after.assigneeId) {
-        await this.activity.log(
-          {
-            taskId: id,
-            actorId: userId,
-            type: ActivityType.ASSIGNEE_CHANGED,
-            fromValue: before.assigneeId,
-            toValue: after.assigneeId,
-          },
-          tx,
-        );
+      if (dto.assigneeIds) {
+        const beforeIds = new Set(before.assignees.map((a) => a.id));
+        const afterIds = new Set(after.assignees.map((a) => a.id));
+        const added = [...afterIds].filter((x) => !beforeIds.has(x));
+        const removed = [...beforeIds].filter((x) => !afterIds.has(x));
+        for (const uid of added) {
+          await this.activity.log(
+            {
+              taskId: id,
+              actorId: userId,
+              type: ActivityType.ASSIGNEE_ADDED,
+              toValue: uid,
+            },
+            tx,
+          );
+        }
+        for (const uid of removed) {
+          await this.activity.log(
+            {
+              taskId: id,
+              actorId: userId,
+              type: ActivityType.ASSIGNEE_REMOVED,
+              fromValue: uid,
+            },
+            tx,
+          );
+        }
       }
       if (dto.title !== undefined && before.title !== after.title) {
         await this.activity.log(
@@ -290,7 +322,10 @@ export class TasksService {
           tx,
         );
       }
-      if (dto.dueDate !== undefined && (before.dueDate?.toISOString() ?? null) !== (after.dueDate?.toISOString() ?? null)) {
+      if (
+        dto.dueDate !== undefined &&
+        (before.dueDate?.toISOString() ?? null) !== (after.dueDate?.toISOString() ?? null)
+      ) {
         await this.activity.log(
           {
             taskId: id,
@@ -315,10 +350,10 @@ export class TasksService {
         );
       }
       if (dto.labelIds) {
-        const beforeIds = new Set(before.labels.map((l) => l.id));
-        const afterIds = new Set(after.labels.map((l) => l.id));
-        const added = [...afterIds].filter((x) => !beforeIds.has(x));
-        const removed = [...beforeIds].filter((x) => !afterIds.has(x));
+        const beforeLabels = new Set(before.labels.map((l) => l.id));
+        const afterLabels = new Set(after.labels.map((l) => l.id));
+        const added = [...afterLabels].filter((x) => !beforeLabels.has(x));
+        const removed = [...beforeLabels].filter((x) => !afterLabels.has(x));
         for (const labelId of added) {
           await this.activity.log(
             {
@@ -348,10 +383,13 @@ export class TasksService {
 
     await this.projects.syncClosureState(before.projectId);
     this.realtime.emitTaskUpserted(before.projectId, result);
-    // Assignment may have moved between users → notify old + new + actor.
+    // Notify old assignees (so the project disappears if they were the only
+    // reason it appeared), new assignees, and the actor.
+    const oldAssigneeIds = before.assignees.map((a) => a.id);
+    const newAssigneeIds = result.assignees.map((a) => a.id);
     await this.notifyProjectMembers(before.projectId, [
-      before.assigneeId,
-      dto.assigneeId,
+      ...oldAssigneeIds,
+      ...newAssigneeIds,
       userId,
     ]);
     return result;
@@ -359,9 +397,10 @@ export class TasksService {
 
   async remove(id: string, userId: string): Promise<void> {
     const task = await this.get(id, userId);
+    const formerAssignees = task.assignees.map((a) => a.id);
     await this.prisma.task.delete({ where: { id } });
     await this.projects.syncClosureState(task.projectId);
     this.realtime.emitTaskDeleted(task.projectId, id);
-    await this.notifyProjectMembers(task.projectId, [task.assigneeId, userId]);
+    await this.notifyProjectMembers(task.projectId, [...formerAssignees, userId]);
   }
 }

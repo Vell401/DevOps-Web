@@ -97,6 +97,22 @@ function renderVerb(
         </>
       );
     }
+    case 'ASSIGNEE_ADDED': {
+      const user = ev.toValue ? userById.get(ev.toValue) : undefined;
+      return (
+        <>
+          assigned <span className="text-ink">{user?.name ?? 'someone'}</span>
+        </>
+      );
+    }
+    case 'ASSIGNEE_REMOVED': {
+      const user = ev.fromValue ? userById.get(ev.fromValue) : undefined;
+      return (
+        <>
+          unassigned <span className="text-ink">{user?.name ?? 'someone'}</span>
+        </>
+      );
+    }
     case 'PRIORITY_CHANGED':
       return (
         <>

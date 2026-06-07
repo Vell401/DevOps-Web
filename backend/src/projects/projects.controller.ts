@@ -39,7 +39,9 @@ export class ProjectsController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.projects.getOwned(id, user.userId);
+    // Members (people assigned to any task here) can fetch the project too,
+    // not just the owner — they need it to render the detail page.
+    return this.projects.getAccessible(id, user.userId);
   }
 
   @Post()
@@ -79,5 +81,33 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<void> {
     await this.projects.remove(id, user.userId);
+  }
+
+  // --- members ---
+
+  @Get(':id/members')
+  listMembers(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projects.listMembers(id, user.userId);
+  }
+
+  @Post(':id/members')
+  async addMember(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { userId: string },
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projects.addMember(id, user.userId, body.userId);
+  }
+
+  @Delete(':id/members/:memberId')
+  async removeMember(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('memberId', ParseUUIDPipe) memberId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projects.removeMember(id, user.userId, memberId);
   }
 }

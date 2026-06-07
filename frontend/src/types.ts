@@ -23,6 +23,8 @@ export type ActivityType =
   | 'CREATED'
   | 'STATUS_CHANGED'
   | 'ASSIGNEE_CHANGED'
+  | 'ASSIGNEE_ADDED'
+  | 'ASSIGNEE_REMOVED'
   | 'PRIORITY_CHANGED'
   | 'TITLE_CHANGED'
   | 'DESCRIPTION_CHANGED'
@@ -100,8 +102,7 @@ export interface Task {
   position: number;
   dueDate: string | null;
   projectId: string;
-  assigneeId: string | null;
-  assignee?: UserLite | null;
+  assignees: UserLite[];
   parentId: string | null;
   parent?: TaskRef | null;
   labels: Label[];

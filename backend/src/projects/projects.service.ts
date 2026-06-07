@@ -30,16 +30,17 @@ export class ProjectsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Membership rule: a user has access to a project if they OWN it OR they are
-   * the assignee of at least one task in it. The second condition turns task
-   * assignment into implicit project membership — exactly what users expect
-   * ("admin assigned me a task, so I see the project").
+   * Membership rule: a user has access to a project if any of these is true:
+   *   - they OWN it
+   *   - they are an explicit member (added by the owner via the members API)
+   *   - they are an assignee of at least one task in it (implicit membership)
    */
   private accessibleWhere(userId: string): Prisma.ProjectWhereInput {
     return {
       OR: [
         { ownerId: userId },
-        { tasks: { some: { assigneeId: userId } } },
+        { members: { some: { id: userId } } },
+        { tasks: { some: { assignees: { some: { id: userId } } } } },
       ],
     };
   }
@@ -90,17 +91,31 @@ export class ProjectsService {
     return project;
   }
 
-  /** Member-access: owner or anyone with at least one assigned task in it. */
+  /** Member-access: owner, explicit member, or any task-assignee in the project. */
   async getAccessible(id: string, userId: string) {
-    const project = await this.prisma.project.findUnique({ where: { id } });
+    const project = await this.prisma.project.findUnique({
+      where: { id },
+      include: { members: { select: { id: true } } },
+    });
     if (!project) throw new NotFoundException('Project not found');
-    if (project.ownerId === userId) return project;
-    const isMember = await this.prisma.task.findFirst({
-      where: { projectId: id, assigneeId: userId },
+    if (project.ownerId === userId) {
+      const { members: _m, ...rest } = project;
+      return rest;
+    }
+    if (project.members.some((m) => m.id === userId)) {
+      const { members: _m, ...rest } = project;
+      return rest;
+    }
+    const isAssignee = await this.prisma.task.findFirst({
+      where: {
+        projectId: id,
+        assignees: { some: { id: userId } },
+      },
       select: { id: true },
     });
-    if (!isMember) throw new ForbiddenException();
-    return project;
+    if (!isAssignee) throw new ForbiddenException();
+    const { members: _m, ...rest } = project;
+    return rest;
   }
 
   async assertAccessible(id: string, userId: string): Promise<void> {
@@ -202,22 +217,67 @@ export class ProjectsService {
 
   /**
    * Distinct user IDs that should be notified when a project's state changes:
-   * the owner plus every distinct task assignee currently in the project.
+   * the owner plus every explicit member plus every distinct task assignee
+   * currently in the project.
    */
   async memberIds(projectId: string): Promise<string[]> {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
-      select: { ownerId: true },
+      select: {
+        ownerId: true,
+        members: { select: { id: true } },
+        tasks: {
+          where: { assignees: { some: {} } },
+          select: { assignees: { select: { id: true } } },
+        },
+      },
     });
     if (!project) return [];
-    const assignees = await this.prisma.task.findMany({
-      where: { projectId, assigneeId: { not: null } },
-      select: { assigneeId: true },
-      distinct: ['assigneeId'],
-    });
     const ids = new Set<string>([project.ownerId]);
-    for (const a of assignees) if (a.assigneeId) ids.add(a.assigneeId);
+    for (const m of project.members) ids.add(m.id);
+    for (const t of project.tasks) {
+      for (const a of t.assignees) ids.add(a.id);
+    }
     return Array.from(ids);
+  }
+
+  // ----------------- Explicit project members management -----------------
+
+  async listMembers(projectId: string, userId: string) {
+    await this.assertAccessible(projectId, userId);
+    return this.prisma.user.findMany({
+      where: { memberProjects: { some: { id: projectId } } },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        avatarColor: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async addMember(projectId: string, userId: string, memberId: string) {
+    await this.getOwned(projectId, userId);
+    const user = await this.prisma.user.findUnique({
+      where: { id: memberId },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: { members: { connect: { id: memberId } } },
+    });
+    return this.listMembers(projectId, userId);
+  }
+
+  async removeMember(projectId: string, userId: string, memberId: string) {
+    await this.getOwned(projectId, userId);
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: { members: { disconnect: { id: memberId } } },
+    });
+    return this.listMembers(projectId, userId);
   }
 
   async remove(id: string, userId: string) {

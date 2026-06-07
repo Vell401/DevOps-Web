@@ -280,6 +280,7 @@ async function main() {
 
   async function createTaskWithLog(spec: TaskSpec, parentId: string | null) {
     const number = nextNumber(spec.project.id);
+    const assigneeIds = spec.assigneeId ? [spec.assigneeId] : [];
     const task = await prisma.task.create({
       data: {
         number,
@@ -287,9 +288,11 @@ async function main() {
         description: spec.description,
         status: spec.status,
         priority: spec.priority,
-        assigneeId: spec.assigneeId,
         projectId: spec.project.id,
         parentId,
+        assignees: assigneeIds.length
+          ? { connect: assigneeIds.map((id) => ({ id })) }
+          : undefined,
         labels: {
           connect: spec.labels.map((name) => ({ id: L(spec.project.id, name).id })),
         },

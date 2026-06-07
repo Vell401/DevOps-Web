@@ -45,6 +45,11 @@ export const projectsApi = {
   reopen: (id: string) => api.post<Project>(`/projects/${id}/reopen`),
   remove: (id: string) => api.delete(`/projects/${id}`),
   activity: (id: string) => api.get<Activity[]>(`/projects/${id}/activity`),
+  listMembers: (id: string) => api.get<UserLite[]>(`/projects/${id}/members`),
+  addMember: (id: string, userId: string) =>
+    api.post<UserLite[]>(`/projects/${id}/members`, { userId }),
+  removeMember: (id: string, memberId: string) =>
+    api.delete<UserLite[]>(`/projects/${id}/members/${memberId}`),
 };
 
 export interface TaskFilters {
@@ -63,7 +68,7 @@ export interface TaskBody {
   priority?: TaskPriority;
   position?: number;
   dueDate?: string | null;
-  assigneeId?: string | null;
+  assigneeIds?: string[];
   parentId?: string | null;
   labelIds?: string[];
 }

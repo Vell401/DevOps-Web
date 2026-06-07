@@ -33,16 +33,22 @@ export class ActivityController {
       where: { id: taskId },
       select: {
         projectId: true,
-        project: { select: { ownerId: true } },
+        project: {
+          select: { ownerId: true, members: { select: { id: true } } },
+        },
       },
     });
     if (!task) throw new NotFoundException('Task not found');
     if (task.project.ownerId === userId) return;
-    const member = await this.prisma.task.findFirst({
-      where: { projectId: task.projectId, assigneeId: userId },
+    if (task.project.members.some((m) => m.id === userId)) return;
+    const assignedSomewhere = await this.prisma.task.findFirst({
+      where: {
+        projectId: task.projectId,
+        assignees: { some: { id: userId } },
+      },
       select: { id: true },
     });
-    if (!member) throw new ForbiddenException();
+    if (!assignedSomewhere) throw new ForbiddenException();
   }
 
   @Get('tasks/:taskId/activity')

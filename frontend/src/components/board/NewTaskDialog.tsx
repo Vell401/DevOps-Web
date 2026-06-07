@@ -34,7 +34,7 @@ export function NewTaskDialog({
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<TaskStatus>(defaultStatus);
   const [priority, setPriority] = useState<TaskPriority>('MEDIUM');
-  const [assigneeId, setAssigneeId] = useState<string | undefined>();
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [labelIds, setLabelIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
@@ -45,7 +45,7 @@ export function NewTaskDialog({
       setTitle('');
       setDescription('');
       setPriority('MEDIUM');
-      setAssigneeId(undefined);
+      setAssigneeIds([]);
       setLabelIds([]);
     }
   }, [open, defaultStatus]);
@@ -60,7 +60,7 @@ export function NewTaskDialog({
         description: description.trim() || undefined,
         status,
         priority,
-        assigneeId: assigneeId ?? undefined,
+        assigneeIds: assigneeIds.length ? assigneeIds : undefined,
         labelIds: labelIds.length ? labelIds : undefined,
       });
       toast.push('Task created', 'success');
@@ -73,7 +73,7 @@ export function NewTaskDialog({
     }
   }
 
-  const assignee = users.find((u) => u.id === assigneeId);
+  const selectedAssignees = users.filter((u) => assigneeIds.includes(u.id));
   const selectedLabels = labels.filter((l) => labelIds.includes(l.id));
 
   return (
@@ -150,33 +150,40 @@ export function NewTaskDialog({
             trigger={({ toggle }) => (
               <button type="button" onClick={toggle} className="btn-secondary h-7 px-2 text-xs">
                 <Icon.User size={12} />
-                {assignee ? assignee.name : 'Unassigned'}
+                {selectedAssignees.length === 0
+                  ? 'Unassigned'
+                  : selectedAssignees.length === 1
+                    ? selectedAssignees[0].name
+                    : `${selectedAssignees.length} assignees`}
               </button>
             )}
           >
-            {(close) => (
+            {() => (
               <>
-                <PopoverItem
-                  onClick={() => {
-                    setAssigneeId(undefined);
-                    close();
-                  }}
-                >
-                  Unassigned
-                </PopoverItem>
-                {users.map((u) => (
-                  <PopoverItem
-                    key={u.id}
-                    active={u.id === assigneeId}
-                    onClick={() => {
-                      setAssigneeId(u.id);
-                      close();
-                    }}
-                    icon={<Avatar name={u.name} color={u.avatarColor} size="xs" />}
-                  >
-                    {u.name}
-                  </PopoverItem>
-                ))}
+                {users.map((u) => {
+                  const active = assigneeIds.includes(u.id);
+                  return (
+                    <PopoverItem
+                      key={u.id}
+                      active={active}
+                      onClick={() =>
+                        setAssigneeIds((prev) =>
+                          active ? prev.filter((x) => x !== u.id) : [...prev, u.id],
+                        )
+                      }
+                      icon={
+                        <span className="inline-flex h-4 w-4 items-center justify-center">
+                          {active ? <Icon.Check size={12} /> : null}
+                        </span>
+                      }
+                    >
+                      <span className="flex items-center gap-2">
+                        <Avatar name={u.name} color={u.avatarColor} size="xs" />
+                        {u.name}
+                      </span>
+                    </PopoverItem>
+                  );
+                })}
               </>
             )}
           </Popover>

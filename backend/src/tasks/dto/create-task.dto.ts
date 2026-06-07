@@ -36,8 +36,10 @@ export class CreateTaskDto {
   dueDate?: string;
 
   @IsOptional()
-  @IsUUID()
-  assigneeId?: string;
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID(undefined, { each: true })
+  assigneeIds?: string[];
 
   @IsOptional()
   @IsUUID()

@@ -25,7 +25,7 @@ export class AdminService {
         _count: {
           select: {
             projects: true,
-            tasks: true,
+            assignedTasks: true,
             comments: true,
           },
         },
@@ -35,7 +35,7 @@ export class AdminService {
       ...u,
       stats: {
         projects: u._count.projects,
-        tasks: u._count.tasks,
+        tasks: u._count.assignedTasks,
         comments: u._count.comments,
       },
       _count: undefined,

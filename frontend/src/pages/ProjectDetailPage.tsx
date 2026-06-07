@@ -20,6 +20,7 @@ import { ActivityDashboard } from '../components/board/ActivityDashboard';
 import { Filters, type FilterState } from '../components/board/Filters';
 import { TaskDrawer } from '../components/board/TaskDrawer';
 import { NewTaskDialog } from '../components/board/NewTaskDialog';
+import { ProjectMembersDialog } from '../components/board/ProjectMembersDialog';
 import { Icon } from '../ui/Icon';
 import { Spinner } from '../ui/Spinner';
 import { useToast } from '../ui/Toast';
@@ -60,6 +61,7 @@ export function ProjectDetailPage() {
     [search, setSearch],
   );
   const [newTaskFor, setNewTaskFor] = useState<TaskStatus | null>(null);
+  const [membersOpen, setMembersOpen] = useState(false);
   const toast = useToast();
 
   const reloadCore = useCallback(async () => {
@@ -242,38 +244,50 @@ export function ProjectDetailPage() {
                   </button>
                 )}
               >
-                {(close) =>
-                  isClosed ? (
+                {(close) => (
+                  <>
                     <PopoverItem
-                      icon={<Icon.ArrowLeft size={13} />}
+                      icon={<Icon.User size={13} />}
                       onClick={() => {
                         close();
-                        void onReopenProject();
+                        setMembersOpen(true);
                       }}
                     >
-                      Reopen project
+                      Manage members
                     </PopoverItem>
-                  ) : (
-                    <PopoverItem
-                      icon={<Icon.Check size={13} />}
-                      onClick={() => {
-                        close();
-                        if (canClose) void onCloseProject();
-                      }}
-                    >
-                      <span className={cn(!canClose && 'text-ink-subtle')}>
-                        Close project
-                        {!canClose && (
-                          <span className="ml-2 text-[11px] text-ink-subtle">
-                            {tasks.length === 0
-                              ? '· no tasks'
-                              : `· ${unfinishedCount} unfinished`}
-                          </span>
-                        )}
-                      </span>
-                    </PopoverItem>
-                  )
-                }
+                    <hr className="my-1 border-line" />
+                    {isClosed ? (
+                      <PopoverItem
+                        icon={<Icon.ArrowLeft size={13} />}
+                        onClick={() => {
+                          close();
+                          void onReopenProject();
+                        }}
+                      >
+                        Reopen project
+                      </PopoverItem>
+                    ) : (
+                      <PopoverItem
+                        icon={<Icon.Check size={13} />}
+                        onClick={() => {
+                          close();
+                          if (canClose) void onCloseProject();
+                        }}
+                      >
+                        <span className={cn(!canClose && 'text-ink-subtle')}>
+                          Close project
+                          {!canClose && (
+                            <span className="ml-2 text-[11px] text-ink-subtle">
+                              {tasks.length === 0
+                                ? '· no tasks'
+                                : `· ${unfinishedCount} unfinished`}
+                            </span>
+                          )}
+                        </span>
+                      </PopoverItem>
+                    )}
+                  </>
+                )}
               </Popover>
             )}
           </>
@@ -389,6 +403,14 @@ export function ProjectDetailPage() {
           void reloadTasks();
           bumpActivity();
         }}
+      />
+
+      <ProjectMembersDialog
+        open={membersOpen}
+        onClose={() => setMembersOpen(false)}
+        projectId={project.id}
+        ownerId={project.ownerId}
+        onChanged={reloadProjects}
       />
     </>
   );
