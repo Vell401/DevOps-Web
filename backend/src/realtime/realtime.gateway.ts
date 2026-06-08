@@ -130,6 +130,18 @@ export class RealtimeGateway
       .emit('comment-deleted', { taskId, commentId });
   }
 
+  emitAttachmentAdded(projectId: string, taskId: string, attachment: unknown) {
+    this.server
+      .to(roomFor(projectId))
+      .emit('attachment-added', { taskId, attachment });
+  }
+
+  emitAttachmentRemoved(projectId: string, taskId: string, attachmentId: string) {
+    this.server
+      .to(roomFor(projectId))
+      .emit('attachment-removed', { taskId, attachmentId });
+  }
+
   /**
    * Notify a set of users that their list of visible projects may have
    * changed (new assignment, project closed, etc). The frontend reacts by

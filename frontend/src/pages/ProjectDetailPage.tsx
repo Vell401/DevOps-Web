@@ -44,6 +44,8 @@ export function ProjectDetailPage() {
   const [activityVersion, setActivityVersion] = useState(0);
   // Bumped on any realtime comment event so the open TaskDrawer can refetch.
   const [liveCommentsKey, setLiveCommentsKey] = useState(0);
+  // Same idea for attachment add/remove events.
+  const [liveAttachmentsKey, setLiveAttachmentsKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [closeBusy, setCloseBusy] = useState(false);
   const [view, setView] = useState<View>('board');
@@ -194,6 +196,12 @@ export function ProjectDetailPage() {
     'comment-deleted': () => {
       bumpActivity();
       setLiveCommentsKey((k) => k + 1);
+    },
+    'attachment-added': () => {
+      setLiveAttachmentsKey((k) => k + 1);
+    },
+    'attachment-removed': () => {
+      setLiveAttachmentsKey((k) => k + 1);
     },
   });
 
@@ -412,6 +420,8 @@ export function ProjectDetailPage() {
         currentUserId={user?.id}
         canModerateComments={isOwner && !isClosed}
         liveCommentsKey={liveCommentsKey}
+        canUpload={!isClosed}
+        liveAttachmentsKey={liveAttachmentsKey}
         onClose={() => setTaskId(null)}
         onChanged={() => {
           void reloadTasks();

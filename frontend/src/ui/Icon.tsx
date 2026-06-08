@@ -141,4 +141,20 @@ export const Icon = {
       <path d="M16 17l5-5-5-5M21 12H9" />
     </Base>
   ),
+  Paperclip: (p: IconProps) => (
+    <Base {...p}>
+      <path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-2.9-2.9l8.1-8.1" />
+    </Base>
+  ),
+  Download: (p: IconProps) => (
+    <Base {...p}>
+      <path d="M12 4v11M7 11l5 5 5-5M5 20h14" />
+    </Base>
+  ),
+  File: (p: IconProps) => (
+    <Base {...p}>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" />
+      <path d="M14 3v5h5" />
+    </Base>
+  ),
 };

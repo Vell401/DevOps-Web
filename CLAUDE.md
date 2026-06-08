@@ -18,6 +18,10 @@ via a self-hosted GitHub Actions runner.
   rate limiting (`@nestjs/throttler`) currently uses an in-memory store.
 - **Frontend:** React 18 + Vite + TypeScript + TailwindCSS.
 - **Realtime:** Socket.IO via a NestJS WebSocket gateway at `/api/socket.io`.
+- **Object storage:** MinIO (S3-compatible) container for task attachments;
+  accessed with `@aws-sdk/client-s3`, uploads via `multer`. The backend proxies
+  up/downloads — MinIO is never exposed to clients. Same code works against real
+  AWS S3 by changing `S3_ENDPOINT` / credentials.
 - **Auth:** JWT access + rotating refresh, bcrypt password hashing.
 - **Tests:** Jest (backend), Vitest + React Testing Library (frontend).
 - **Infra:** Docker (multi-stage), nginx reverse proxy in prod, GitHub Actions CI/CD.
@@ -26,8 +30,8 @@ via a self-hosted GitHub Actions runner.
 
 ```
 backend/    NestJS API — src/ modules (auth, users, projects, tasks, comments,
-            labels, activity, admin, realtime, health, config),
-            prisma/ (schema, migrations, seed), test/ (e2e), Dockerfile
+            labels, activity, admin, realtime, storage, attachments, health,
+            config), prisma/ (schema, migrations, seed), test/ (e2e), Dockerfile
 frontend/   React SPA — src/ (pages, components, api client, auth context), nginx.conf, Dockerfile
 deploy/     edge.conf — production reverse-proxy config (HTTP + WebSocket upgrade)
 .github/    workflows: ci.yml (PRs), dev-cd.yml (push to dev), prod-cd.yml (push to main)

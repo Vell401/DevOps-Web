@@ -38,6 +38,22 @@ services:
       timeout: 3s
       retries: 5
 
+  # S3-compatible object storage for task attachments.
+  # Console UI at http://localhost:9001 (login = S3 access/secret key).
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    # Bound to localhost only — like postgres/redis, never exposed on the LAN.
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+
   backend:
     build:
       context: ./backend
@@ -57,11 +73,20 @@ services:
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
       THROTTLE_TTL: ${THROTTLE_TTL:-60}
       THROTTLE_LIMIT: ${THROTTLE_LIMIT:-120}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-tracker-attachments}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_FORCE_PATH_STYLE: "true"
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-26214400}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
     ports:
       - "3000:3000"
 
@@ -79,3 +104,4 @@ services:
 
 volumes:
   postgres_data:
+  minio_data:

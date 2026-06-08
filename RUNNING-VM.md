@@ -45,6 +45,8 @@ runner'ом с лейблом `dev`, ветка `main` — runner'ом с лей
 - [ ] `CORS_ORIGINS` — `http://<IP_сервера>` (значение определяется после шага 1)
 - [ ] `SEED_ADMIN_PASSWORD` — пароль для seeded admin@tracker.local
 - [ ] `SEED_TEST_PASSWORD` — пароль для seeded test@tracker.local
+- [ ] `S3_ACCESS_KEY` — ключ доступа MinIO/S3 (им же инициализируется MinIO)
+- [ ] `S3_SECRET_KEY` — секретный ключ MinIO/S3
 
 Пайплайны `dev` и `prod` по умолчанию используют один и тот же набор секретов
 уровня репозитория. При необходимости изолировать значения по средам применяются
@@ -216,7 +218,7 @@ sudo ls /opt/tracker
 # docker-compose.prod.yml  deploy/  .env
 
 sudo -iu deploy docker ps
-# postgres, redis, backend, frontend, edge — все Up (healthy)
+# postgres, redis, minio, backend, frontend, edge — все Up (healthy)
 
 curl -sS http://localhost/api/health/ready
 # {"status":"ok","info":{"database":{"status":"up"}}, ...}
@@ -467,6 +469,11 @@ Workflow пропускает test и build (тег задан явно) и ср
 ---
 
 ## 7. Ночные резервные копии Postgres
+
+`pg_dump` покрывает только базу данных. Файлы вложений хранятся в MinIO (том
+`minio_data`) и в SQL-дамп не попадают; при необходимости их полного бэкапа
+резервируется сам docker-том (например, `docker run --rm -v
+tracker_minio_data:/data -v "$PWD":/backup alpine tar czf /backup/minio.tgz -C /data .`).
 
 Вариант для пет-проекта: cron на сервере создаёт дамп в `/opt/tracker/backups/`.
 

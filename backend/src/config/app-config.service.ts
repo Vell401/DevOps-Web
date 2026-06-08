@@ -57,4 +57,36 @@ export class AppConfigService {
   get throttleLimit(): number {
     return parseInt(this.config.get<string>('THROTTLE_LIMIT', '120'), 10);
   }
+
+  // --- Object storage (S3 / MinIO) ---
+
+  get s3Endpoint(): string {
+    return this.config.get<string>('S3_ENDPOINT', 'http://minio:9000');
+  }
+
+  get s3Region(): string {
+    return this.config.get<string>('S3_REGION', 'us-east-1');
+  }
+
+  get s3Bucket(): string {
+    return this.config.get<string>('S3_BUCKET', 'tracker-attachments');
+  }
+
+  get s3AccessKey(): string {
+    return this.config.get<string>('S3_ACCESS_KEY', 'minioadmin');
+  }
+
+  get s3SecretKey(): string {
+    return this.config.get<string>('S3_SECRET_KEY', 'minioadmin');
+  }
+
+  /** MinIO and most non-AWS S3 servers require path-style addressing. */
+  get s3ForcePathStyle(): boolean {
+    return this.config.get<string>('S3_FORCE_PATH_STYLE', 'true') !== 'false';
+  }
+
+  /** Maximum upload size in bytes (default 25 MB). */
+  get maxUploadBytes(): number {
+    return parseInt(this.config.get<string>('MAX_UPLOAD_BYTES', '26214400'), 10);
+  }
 }

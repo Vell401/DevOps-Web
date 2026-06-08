@@ -17,6 +17,8 @@ import { LabelsModule } from './labels/labels.module';
 import { ActivityModule } from './activity/activity.module';
 import { AdminModule } from './admin/admin.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { StorageModule } from './storage/storage.module';
+import { AttachmentsModule } from './attachments/attachments.module';
 
 @Module({
   imports: [
@@ -51,6 +53,8 @@ import { RealtimeModule } from './realtime/realtime.module';
     ActivityModule,
     AdminModule,
     RealtimeModule,
+    StorageModule,
+    AttachmentsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

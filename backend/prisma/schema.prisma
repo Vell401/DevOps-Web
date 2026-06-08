@@ -68,6 +68,7 @@ model User {
   assignedTasks  Task[]         @relation("TaskAssignees")
   comments       Comment[]
   activities     Activity[]
+  attachments    Attachment[]
   refreshTokens  RefreshToken[]
 }
 
@@ -107,6 +108,7 @@ model Task {
   subtasks    Task[]       @relation("Subtasks")
   comments    Comment[]
   activities  Activity[]
+  attachments Attachment[]
   labels      Label[]      @relation("TaskLabels")
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
@@ -156,6 +158,22 @@ model Activity {
 
   @@index([taskId])
   @@index([actorId])
+}
+
+model Attachment {
+  id         String   @id @default(uuid())
+  taskId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploaderId String
+  uploader   User     @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  key        String   @unique // object key in the S3/MinIO bucket
+  filename   String // original client filename
+  mimeType   String
+  size       Int // bytes
+  createdAt  DateTime @default(now())
+
+  @@index([taskId])
+  @@index([uploaderId])
 }
 
 model RefreshToken {

@@ -38,6 +38,18 @@ services:
       timeout: 3s
       retries: 5
 
+  # S3-compatible object storage for task attachments. Internal only — reached
+  # by the backend over the docker network; never published to the host/LAN.
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?S3_SECRET_KEY must be set}
+    volumes:
+      - minio_data:/data
+
   backend:
     # IMAGE_TAG must be an immutable tag (sha-abc1234), never "latest" — the deploy
     # workflow always passes a concrete sha. Failing here is loud and intentional.
@@ -61,11 +73,20 @@ services:
       # `docker compose exec backend …`. The running app never reads them.
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
       SEED_TEST_PASSWORD: ${SEED_TEST_PASSWORD:-}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-tracker-attachments}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY must be set}
+      S3_FORCE_PATH_STYLE: "true"
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-26214400}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
     expose:
       - "3000"
 
@@ -90,3 +111,4 @@ services:
 
 volumes:
   postgres_data:
+  minio_data:

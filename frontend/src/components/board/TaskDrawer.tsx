@@ -1,6 +1,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   Activity,
+  Attachment,
   Comment,
   Label,
   Task,
@@ -8,12 +10,13 @@ import type {
   UserLite,
 } from '../../types';
 import {
+  attachmentsApi,
   commentsApi,
   labelsApi,
   tasksApi,
   type TaskBody,
 } from '../../api/endpoints';
-import { Drawer } from '../../ui/Drawer';
+import { ModalShell } from '../../ui/ModalShell';
 import { Avatar, AvatarStack } from '../../ui/Avatar';
 import { LabelChip } from '../../ui/LabelChip';
 import { Icon } from '../../ui/Icon';
@@ -51,12 +54,16 @@ interface Props {
    * list so the drawer stays in sync with other clients without F5.
    */
   liveCommentsKey: number;
+  /** Any member with access can upload while the project is open. */
+  canUpload: boolean;
+  /** Bumped on realtime attachment-added/removed events for this project. */
+  liveAttachmentsKey: number;
   onClose: () => void;
   onChanged: () => void;
   onLabelsChanged: () => void;
 }
 
-type Tab = 'overview' | 'comments' | 'activity';
+type Tab = 'overview' | 'comments' | 'activity' | 'files';
 
 export function TaskDrawer({
   taskId,
@@ -67,6 +74,8 @@ export function TaskDrawer({
   currentUserId,
   canModerateComments,
   liveCommentsKey,
+  canUpload,
+  liveAttachmentsKey,
   onClose,
   onChanged,
   onLabelsChanged,
@@ -76,20 +85,23 @@ export function TaskDrawer({
   const [tab, setTab] = useState<Tab>('overview');
   const [comments, setComments] = useState<Comment[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const toast = useToast();
 
   const reload = useCallback(async () => {
     if (!taskId) return;
     setLoading(true);
     try {
-      const [t, c, a] = await Promise.all([
+      const [t, c, a, att] = await Promise.all([
         tasksApi.get(taskId),
         commentsApi.list(taskId),
         tasksApi.activity(taskId),
+        attachmentsApi.list(taskId),
       ]);
       setTask(t.data);
       setComments(c.data);
       setActivities(a.data);
+      setAttachments(att.data);
     } finally {
       setLoading(false);
     }
@@ -103,6 +115,7 @@ export function TaskDrawer({
       setTask(null);
       setComments([]);
       setActivities([]);
+      setAttachments([]);
     }
   }, [taskId, reload]);
 
@@ -128,6 +141,36 @@ export function TaskDrawer({
         setComments((prev) => prev.filter((c) => c.id !== commentId));
       } catch {
         toast.push('Could not delete comment', 'error');
+      }
+    },
+    [toast],
+  );
+
+  // Re-fetch attachments on realtime attachment events (same pattern as comments).
+  useEffect(() => {
+    if (!taskId || liveAttachmentsKey === 0) return;
+    let cancelled = false;
+    void attachmentsApi.list(taskId).then((r) => {
+      if (!cancelled) setAttachments(r.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId, liveAttachmentsKey]);
+
+  const reloadAttachments = useCallback(async () => {
+    if (!taskId) return;
+    const r = await attachmentsApi.list(taskId);
+    setAttachments(r.data);
+  }, [taskId]);
+
+  const onDeleteAttachment = useCallback(
+    async (id: string) => {
+      try {
+        await attachmentsApi.remove(id);
+        setAttachments((prev) => prev.filter((a) => a.id !== id));
+      } catch {
+        toast.push('Could not delete file', 'error');
       }
     },
     [toast],
@@ -163,14 +206,14 @@ export function TaskDrawer({
   };
 
   return (
-    <Drawer open={taskId !== null} onClose={onClose} width={560}>
+    <ModalShell open={taskId !== null} onClose={onClose} width={920}>
       {loading && !task && (
-        <div className="flex flex-1 items-center justify-center text-sm text-ink-muted">
+        <div className="flex items-center justify-center px-6 py-16 text-sm text-ink-muted">
           <Spinner /> <span className="ml-2">Loading task…</span>
         </div>
       )}
       {task && (
-        <div className="flex h-full flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">
           <DrawerHeader
             task={task}
             projectKey={projectKey}
@@ -191,12 +234,20 @@ export function TaskDrawer({
                 </span>
               )}
             </TabBtn>
+            <TabBtn active={tab === 'files'} onClick={() => setTab('files')}>
+              <Icon.Paperclip size={13} /> Files
+              {attachments.length > 0 && (
+                <span className="ml-1 font-mono text-[10px] text-ink-subtle">
+                  {attachments.length}
+                </span>
+              )}
+            </TabBtn>
             <TabBtn active={tab === 'activity'} onClick={() => setTab('activity')}>
               <Icon.Activity size={13} /> Activity
             </TabBtn>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-5 py-4 scrollbar-thin">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 scrollbar-thin">
             {tab === 'overview' && (
               <OverviewTab
                 task={task}
@@ -217,6 +268,17 @@ export function TaskDrawer({
                 onDeleteComment={onDeleteComment}
               />
             )}
+            {tab === 'files' && (
+              <AttachmentsTab
+                taskId={task.id}
+                attachments={attachments}
+                canUpload={canUpload}
+                canModerate={canModerateComments}
+                currentUserId={currentUserId}
+                onUploaded={reloadAttachments}
+                onDelete={onDeleteAttachment}
+              />
+            )}
             {tab === 'activity' && (
               <ActivityFeed events={activities} users={users} labels={labels} />
             )}
@@ -225,7 +287,7 @@ export function TaskDrawer({
           <DrawerFooter task={task} />
         </div>
       )}
-    </Drawer>
+    </ModalShell>
   );
 }
 
@@ -1017,6 +1079,282 @@ function CommentsTab({
         </div>
       </form>
     </div>
+  );
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function isImageMime(mime: string): boolean {
+  return mime.startsWith('image/');
+}
+
+function AttachmentsTab({
+  taskId,
+  attachments,
+  canUpload,
+  canModerate,
+  currentUserId,
+  onUploaded,
+  onDelete,
+}: {
+  taskId: string;
+  attachments: Attachment[];
+  canUpload: boolean;
+  canModerate: boolean;
+  currentUserId: string | undefined;
+  onUploaded: () => void | Promise<void>;
+  onDelete: (id: string) => void | Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(
+    null,
+  );
+  const toast = useToast();
+
+  const uploadFiles = async (files: FileList | null) => {
+    if (!files || !files.length || busy) return;
+    setBusy(true);
+    try {
+      for (const f of Array.from(files)) {
+        await attachmentsApi.upload(taskId, f);
+      }
+      await onUploaded();
+    } catch {
+      toast.push('Could not upload (file too large or storage error)', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {canUpload && (
+        <label
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            void uploadFiles(e.dataTransfer.files);
+          }}
+          className={cn(
+            'flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-4 py-7 text-center transition',
+            dragOver
+              ? 'border-blurple bg-blurple/10'
+              : 'border-line-strong hover:border-blurple hover:bg-surface/50',
+          )}
+        >
+          <input
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              void uploadFiles(e.target.files);
+              e.target.value = '';
+            }}
+          />
+          {busy ? (
+            <span className="inline-flex items-center gap-2 text-sm text-ink-muted">
+              <Spinner /> Uploading…
+            </span>
+          ) : (
+            <>
+              <Icon.Paperclip size={18} className="text-ink-subtle" />
+              <span className="text-sm text-ink">
+                Drop files here or click to upload
+              </span>
+              <span className="text-[11px] text-ink-subtle">Up to 25 MB each</span>
+            </>
+          )}
+        </label>
+      )}
+
+      {attachments.length === 0 ? (
+        <p className="text-xs text-ink-subtle">No files attached yet.</p>
+      ) : (
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {attachments.map((a) => (
+            <AttachmentCard
+              key={a.id}
+              att={a}
+              canDelete={
+                (a.uploaderId === currentUserId && canUpload) || canModerate
+              }
+              onOpenImage={(url) => setLightbox({ url, name: a.filename })}
+              onDelete={() => {
+                if (confirm('Delete this file?')) void onDelete(a.id);
+              }}
+            />
+          ))}
+        </ul>
+      )}
+
+      {lightbox && (
+        <Lightbox
+          url={lightbox.url}
+          name={lightbox.name}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function AttachmentCard({
+  att,
+  canDelete,
+  onOpenImage,
+  onDelete,
+}: {
+  att: Attachment;
+  canDelete: boolean;
+  onOpenImage: (url: string) => void;
+  onDelete: () => void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const image = isImageMime(att.mimeType);
+
+  // Images are private (served via the authenticated API), so fetch the bytes
+  // and turn them into an object URL for the <img> thumbnail / lightbox.
+  useEffect(() => {
+    if (!image) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    void attachmentsApi
+      .download(att.id)
+      .then((r) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(r.data);
+        setUrl(objectUrl);
+      })
+      .catch(() => {
+        /* leave as a broken thumb; the download button still works */
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [att.id, image]);
+
+  const download = async () => {
+    try {
+      const r = await attachmentsApi.download(att.id);
+      const u = URL.createObjectURL(r.data);
+      const a = document.createElement('a');
+      a.href = u;
+      a.download = att.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(u);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  return (
+    <li className="group relative overflow-hidden rounded-lg border border-line bg-paper/60">
+      <div className="flex h-28 items-center justify-center bg-surface-deep">
+        {image && url ? (
+          <button
+            type="button"
+            onClick={() => onOpenImage(url)}
+            className="h-full w-full"
+          >
+            <img
+              src={url}
+              alt={att.filename}
+              className="h-full w-full object-cover"
+            />
+          </button>
+        ) : image ? (
+          <Spinner />
+        ) : (
+          <Icon.File size={26} className="text-ink-subtle" />
+        )}
+      </div>
+      <div className="flex items-center gap-1.5 px-2 py-1.5">
+        <span
+          className="min-w-0 flex-1 truncate text-[11px] text-ink"
+          title={att.filename}
+        >
+          {att.filename}
+        </span>
+        <span className="shrink-0 font-mono text-[10px] text-ink-subtle">
+          {formatBytes(att.size)}
+        </span>
+      </div>
+      <div className="absolute right-1 top-1 flex gap-1 opacity-0 transition group-hover:opacity-100">
+        <button
+          type="button"
+          onClick={() => void download()}
+          title="Download"
+          aria-label="Download"
+          className="rounded bg-surface-deep/80 p-1 text-ink-muted hover:text-ink"
+        >
+          <Icon.Download size={13} />
+        </button>
+        {canDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            title="Delete"
+            aria-label="Delete file"
+            className="rounded bg-surface-deep/80 p-1 text-ink-muted hover:text-status-dnd"
+          >
+            <Icon.Trash size={13} />
+          </button>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function Lightbox({
+  url,
+  name,
+  onClose,
+}: {
+  url: string;
+  name: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+      onClick={onClose}
+    >
+      <img
+        src={url}
+        alt={name}
+        className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      />
+      <button
+        onClick={onClose}
+        aria-label="Close"
+        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+      >
+        <Icon.Close size={18} />
+      </button>
+    </div>,
+    document.body,
   );
 }
 

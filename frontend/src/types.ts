@@ -126,6 +126,18 @@ export interface Comment {
   updatedAt: string;
 }
 
+export interface Attachment {
+  id: string;
+  taskId: string;
+  uploaderId: string;
+  uploader?: UserLite;
+  key: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+}
+
 export interface Activity {
   id: string;
   taskId: string;

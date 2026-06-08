@@ -5,6 +5,7 @@ import type {
   ActivityType,
   AdminStats,
   AdminUser,
+  Attachment,
   Comment,
   Label,
   LabelColor,
@@ -97,6 +98,20 @@ export const commentsApi = {
   create: (taskId: string, body: string) =>
     api.post<Comment>(`/tasks/${taskId}/comments`, { body }),
   remove: (id: string) => api.delete(`/comments/${id}`),
+};
+
+export const attachmentsApi = {
+  list: (taskId: string) =>
+    api.get<Attachment[]>(`/tasks/${taskId}/attachments`),
+  upload: (taskId: string, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    // Let the browser set the multipart boundary — don't force Content-Type.
+    return api.post<Attachment>(`/tasks/${taskId}/attachments`, fd);
+  },
+  remove: (id: string) => api.delete(`/attachments/${id}`),
+  download: (id: string) =>
+    api.get<Blob>(`/attachments/${id}`, { responseType: 'blob' }),
 };
 
 export const labelsApi = {

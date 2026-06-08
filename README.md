@@ -20,6 +20,7 @@ GitHub Actions runner.
 | Backend | NestJS 10 (TypeScript) + Prisma 5 |
 | База данных | PostgreSQL 16 |
 | Realtime | Socket.IO (NestJS WebSocket Gateway) |
+| Object storage | MinIO (S3-совместимое) — вложения к задачам |
 | Frontend | React 18 + Vite + TypeScript + TailwindCSS |
 | Auth | JWT (access + ротация refresh), bcrypt |
 | Rate limiting | `@nestjs/throttler` (in-memory store) |
@@ -39,7 +40,8 @@ Redis не обращается: rate limiting использует встрое
 
 - **Backend** — модульное NestJS-приложение. Модули: `auth` (JWT access +
   ротация refresh, bcrypt), `users`, `projects`, `tasks`, `comments`, `labels`,
-  `activity`, `admin`, `realtime` (WebSocket-шлюз), `health`, `config`.
+  `activity`, `admin`, `realtime` (WebSocket-шлюз), `storage` + `attachments`
+  (загрузка файлов в S3/MinIO), `health`, `config`.
   Действует глобальный `ValidationPipe` (`whitelist` + `forbidNonWhitelisted` +
   `transform`), `helmet`, rate limiting (`@nestjs/throttler`) и структурированные
   JSON-логи (`nestjs-pino`) с redact'ом заголовков `Authorization` и `Cookie`.
@@ -47,12 +49,13 @@ Redis не обращается: rate limiting использует встрое
   реальному IP клиента, а не по адресу edge-прокси.
 - **Frontend** — SPA на React: аутентификация, список проектов, детальная
   страница проекта (Kanban-доска, комментарии, активность, подзадачи, лейблы,
-  множественные исполнители), управление участниками проекта, закрытые проекты,
+  вложения, множественные исполнители), управление участниками проекта, закрытые проекты,
   дашборд активности с глобальным inbox, административная панель. Axios-клиент с
   interceptor'ом, автоматически обновляющим access-токен по ответу 401.
   Обновления в реальном времени поступают по Socket.IO (`/api/socket.io`).
 - **БД** — Prisma как source of truth (`backend/prisma/schema.prisma`). Сущности:
-  `User`, `Project`, `Task`, `Label`, `Comment`, `Activity`, `RefreshToken`, а
+  `User`, `Project`, `Task`, `Label`, `Comment`, `Activity`, `Attachment`,
+  `RefreshToken`, а
   также связующие таблицы many-to-many (исполнители задач, участники проектов,
   лейблы задач).
 - **Прод** — образы собираются в CI и публикуются в Docker Hub; на сервере их
@@ -78,7 +81,8 @@ Redis не обращается: rate limiting использует встрое
 backend/                 NestJS API
   prisma/                схема, миграции, seed
   src/                   модули: auth, users, projects, tasks, comments,
-                         labels, activity, admin, realtime, health, config
+                         labels, activity, admin, realtime, storage,
+                         attachments, health, config
   test/                  e2e-тесты
   Dockerfile             multi-stage, non-root, с HEALTHCHECK
 frontend/                React SPA
@@ -186,6 +190,9 @@ npx prisma migrate dev --name <короткое-описание>
 | GET | `/tasks/:id/activity` | История изменений задачи | Bearer |
 | GET, POST | `/tasks/:taskId/comments` | Список / добавить комментарий | Bearer |
 | DELETE | `/comments/:id` | Удалить комментарий (автор или владелец проекта) | Bearer |
+| GET, POST | `/tasks/:taskId/attachments` | Вложения задачи: список / загрузить (multipart) | Bearer |
+| GET | `/attachments/:id` | Получить/скачать файл вложения | Bearer |
+| DELETE | `/attachments/:id` | Удалить вложение (загрузивший или владелец) | Bearer |
 | GET, POST | `/projects/:projectId/labels` | Лейблы проекта: список / создать | Bearer |
 | PATCH, DELETE | `/labels/:id` | Изменить / удалить лейбл | Bearer (владелец) |
 | GET | `/activity` | Глобальная лента активности (inbox) | Bearer |
@@ -217,6 +224,9 @@ npx prisma migrate dev --name <короткое-описание>
 | `THROTTLE_TTL` / `THROTTLE_LIMIT` | backend | 60 / 120 | Окно (сек) и квота rate-limit |
 | `CORS_ORIGINS` | backend | http://localhost:5173 | Разрешённые origins (через запятую) |
 | `LOG_LEVEL` | backend | info | Уровень логирования Pino |
+| `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` | backend | minio / us-east-1 / tracker-attachments | Параметры объектного хранилища (MinIO в Docker) |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | backend / minio | minioadmin (dev) | Ключи S3; в prod из секретов, ими же инициализируется MinIO |
+| `MAX_UPLOAD_BYTES` | backend | 26214400 (25 МБ) | Максимальный размер загружаемого файла |
 | `SEED_ADMIN_PASSWORD` / `SEED_TEST_PASSWORD` | seed | — (обязательны) | Пароли seeded-учёток; без них seed завершается с ошибкой |
 | `VITE_API_URL` | frontend build arg | http://localhost:3000/api | Зашивается в бандл при сборке. Для прод-образа задаётся как GitHub repo variable и подставляется build-job'ом workflow |
 | `DOCKERHUB_USERNAME` | prod compose | — | Namespace образов в Docker Hub (совпадает с одноимённым secret) |
@@ -277,6 +287,8 @@ self-hosted runner'е, размещённом на целевом сервере
 | `CORS_ORIGINS` | список разрешённых origins через запятую |
 | `SEED_ADMIN_PASSWORD` | пароль seeded-админа |
 | `SEED_TEST_PASSWORD` | пароль seeded-тестового пользователя |
+| `S3_ACCESS_KEY` | ключ доступа MinIO/S3 (и root-пользователь MinIO) |
+| `S3_SECRET_KEY` | секретный ключ MinIO/S3 (и root-пароль MinIO) |
 
 ### GitHub Variables (опционально)
 

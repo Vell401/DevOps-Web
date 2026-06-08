@@ -1,13 +1,15 @@
 import { io, Socket } from 'socket.io-client';
 import { useEffect } from 'react';
 import { tokenStorage } from '../api/client';
-import type { Comment, Task } from '../types';
+import type { Attachment, Comment, Task } from '../types';
 
 interface ServerEvents {
   'task-upserted': (task: Task) => void;
   'task-deleted': (payload: { taskId: string }) => void;
   'comment-added': (payload: { taskId: string; comment: Comment }) => void;
   'comment-deleted': (payload: { taskId: string; commentId: string }) => void;
+  'attachment-added': (payload: { taskId: string; attachment: Attachment }) => void;
+  'attachment-removed': (payload: { taskId: string; attachmentId: string }) => void;
 }
 
 interface UserEvents {
