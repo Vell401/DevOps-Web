@@ -161,6 +161,7 @@ export class TasksService {
 
   async create(projectId: string, userId: string, dto: CreateTaskDto) {
     await this.projects.getAccessible(projectId, userId);
+    await this.projects.assertNotClosed(projectId);
 
     // Permission: members can create tasks but only with themselves as assignee
     // (or unassigned). Owners can assign anyone.
@@ -226,6 +227,7 @@ export class TasksService {
 
   async update(id: string, userId: string, dto: UpdateTaskDto) {
     const before = await this.get(id, userId);
+    await this.projects.assertNotClosed(before.projectId);
     const isOwner = before.project.ownerId === userId;
 
     // Permission: members can only change status and board position.
@@ -279,38 +281,48 @@ export class TasksService {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Read `beforeRow` inside the transaction so the activity-log diffs
+      // reflect what *this* mutation actually changed. Reading `before` outside
+      // the transaction (as we did) meant two concurrent PATCH calls could both
+      // see the same stale "before" and write false diffs into Activity.
+      const beforeRow = await tx.task.findUnique({
+        where: { id },
+        include: TASK_INCLUDE,
+      });
+      if (!beforeRow) throw new NotFoundException('Task not found');
+
       const after = await tx.task.update({
         where: { id },
         data,
         include: TASK_INCLUDE,
       });
 
-      if (dto.status !== undefined && before.status !== after.status) {
+      if (dto.status !== undefined && beforeRow.status !== after.status) {
         await this.activity.log(
           {
             taskId: id,
             actorId: userId,
             type: ActivityType.STATUS_CHANGED,
-            fromValue: before.status,
+            fromValue: beforeRow.status,
             toValue: after.status,
           },
           tx,
         );
       }
-      if (dto.priority !== undefined && before.priority !== after.priority) {
+      if (dto.priority !== undefined && beforeRow.priority !== after.priority) {
         await this.activity.log(
           {
             taskId: id,
             actorId: userId,
             type: ActivityType.PRIORITY_CHANGED,
-            fromValue: before.priority,
+            fromValue: beforeRow.priority,
             toValue: after.priority,
           },
           tx,
         );
       }
       if (dto.assigneeIds) {
-        const beforeIds = new Set(before.assignees.map((a) => a.id));
+        const beforeIds = new Set(beforeRow.assignees.map((a) => a.id));
         const afterIds = new Set(after.assignees.map((a) => a.id));
         const added = [...afterIds].filter((x) => !beforeIds.has(x));
         const removed = [...beforeIds].filter((x) => !afterIds.has(x));
@@ -337,19 +349,19 @@ export class TasksService {
           );
         }
       }
-      if (dto.title !== undefined && before.title !== after.title) {
+      if (dto.title !== undefined && beforeRow.title !== after.title) {
         await this.activity.log(
           {
             taskId: id,
             actorId: userId,
             type: ActivityType.TITLE_CHANGED,
-            fromValue: before.title,
+            fromValue: beforeRow.title,
             toValue: after.title,
           },
           tx,
         );
       }
-      if (dto.description !== undefined && before.description !== after.description) {
+      if (dto.description !== undefined && beforeRow.description !== after.description) {
         await this.activity.log(
           {
             taskId: id,
@@ -361,33 +373,33 @@ export class TasksService {
       }
       if (
         dto.dueDate !== undefined &&
-        (before.dueDate?.toISOString() ?? null) !== (after.dueDate?.toISOString() ?? null)
+        (beforeRow.dueDate?.toISOString() ?? null) !== (after.dueDate?.toISOString() ?? null)
       ) {
         await this.activity.log(
           {
             taskId: id,
             actorId: userId,
             type: ActivityType.DUE_DATE_CHANGED,
-            fromValue: before.dueDate?.toISOString() ?? null,
+            fromValue: beforeRow.dueDate?.toISOString() ?? null,
             toValue: after.dueDate?.toISOString() ?? null,
           },
           tx,
         );
       }
-      if (dto.parentId !== undefined && before.parentId !== after.parentId) {
+      if (dto.parentId !== undefined && beforeRow.parentId !== after.parentId) {
         await this.activity.log(
           {
             taskId: id,
             actorId: userId,
             type: ActivityType.PARENT_CHANGED,
-            fromValue: before.parentId,
+            fromValue: beforeRow.parentId,
             toValue: after.parentId,
           },
           tx,
         );
       }
       if (dto.labelIds) {
-        const beforeLabels = new Set(before.labels.map((l) => l.id));
+        const beforeLabels = new Set(beforeRow.labels.map((l) => l.id));
         const afterLabels = new Set(after.labels.map((l) => l.id));
         const added = [...afterLabels].filter((x) => !beforeLabels.has(x));
         const removed = [...beforeLabels].filter((x) => !afterLabels.has(x));
@@ -437,6 +449,7 @@ export class TasksService {
     if (task.project.ownerId !== userId) {
       throw new ForbiddenException('Only the project owner can delete tasks');
     }
+    await this.projects.assertNotClosed(task.projectId);
     const formerAssignees = task.assignees.map((a) => a.id);
     await this.prisma.task.delete({ where: { id } });
     await this.projects.syncClosureState(task.projectId);

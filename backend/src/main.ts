@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import helmet from 'helmet';
@@ -8,8 +9,17 @@ import { AppModule } from './app.module';
 import { AppConfigService } from './config/app-config.service';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+  });
   app.useLogger(app.get(PinoLogger));
+
+  // Trust the edge nginx hop so Express (and therefore @nestjs/throttler) reads
+  // the original client IP from X-Forwarded-For. Without this every request
+  // looks like it came from the docker bridge → the per-IP rate limiter
+  // applies globally to the entire LAN, locking out all users together once
+  // any one of them hits the limit.
+  app.set('trust proxy', 1);
 
   const config = app.get(AppConfigService);
 

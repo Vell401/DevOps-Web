@@ -96,10 +96,13 @@ export class ActivityController {
 
 function isActivityType(v: string | undefined): v is ActivityType {
   if (!v) return false;
+  // Must stay in sync with the Prisma `ActivityType` enum in schema.prisma.
   return [
     'CREATED',
     'STATUS_CHANGED',
     'ASSIGNEE_CHANGED',
+    'ASSIGNEE_ADDED',
+    'ASSIGNEE_REMOVED',
     'PRIORITY_CHANGED',
     'TITLE_CHANGED',
     'DESCRIPTION_CHANGED',

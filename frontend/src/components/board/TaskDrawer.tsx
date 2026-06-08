@@ -41,6 +41,16 @@ interface Props {
   labels: Label[];
   /** When false, all edits except status changes are visually disabled. */
   canEdit: boolean;
+  /** Current viewer's user id — needed for "is this my comment?" checks. */
+  currentUserId: string | undefined;
+  /** When true, viewer can delete any comment (project owner moderation). */
+  canModerateComments: boolean;
+  /**
+   * Bumped by the parent whenever a realtime comment event fires for this
+   * project (add or delete). When the value changes we re-fetch the comments
+   * list so the drawer stays in sync with other clients without F5.
+   */
+  liveCommentsKey: number;
   onClose: () => void;
   onChanged: () => void;
   onLabelsChanged: () => void;
@@ -54,6 +64,9 @@ export function TaskDrawer({
   users,
   labels,
   canEdit,
+  currentUserId,
+  canModerateComments,
+  liveCommentsKey,
   onClose,
   onChanged,
   onLabelsChanged,
@@ -92,6 +105,33 @@ export function TaskDrawer({
       setActivities([]);
     }
   }, [taskId, reload]);
+
+  // Re-fetch comments whenever the parent bumps `liveCommentsKey` (i.e. a
+  // realtime comment-added/comment-deleted event for this project fired). We
+  // skip the very first render — the main `reload` effect above already fetched
+  // them. Bumping the key from 0 → 1 → 2 etc triggers this.
+  useEffect(() => {
+    if (!taskId || liveCommentsKey === 0) return;
+    let cancelled = false;
+    void commentsApi.list(taskId).then((r) => {
+      if (!cancelled) setComments(r.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId, liveCommentsKey]);
+
+  const onDeleteComment = useCallback(
+    async (commentId: string) => {
+      try {
+        await commentsApi.remove(commentId);
+        setComments((prev) => prev.filter((c) => c.id !== commentId));
+      } catch {
+        toast.push('Could not delete comment', 'error');
+      }
+    },
+    [toast],
+  );
 
   const patch = useCallback(
     async (body: TaskBody) => {
@@ -171,7 +211,10 @@ export function TaskDrawer({
               <CommentsTab
                 taskId={task.id}
                 comments={comments}
+                currentUserId={currentUserId}
+                canModerateComments={canModerateComments}
                 onAdded={reload}
+                onDeleteComment={onDeleteComment}
               />
             )}
             {tab === 'activity' && (
@@ -869,11 +912,17 @@ function SubtasksSection({
 function CommentsTab({
   taskId,
   comments,
+  currentUserId,
+  canModerateComments,
   onAdded,
+  onDeleteComment,
 }: {
   taskId: string;
   comments: Comment[];
+  currentUserId: string | undefined;
+  canModerateComments: boolean;
   onAdded: () => void;
+  onDeleteComment: (commentId: string) => Promise<void>;
 }) {
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
@@ -901,29 +950,49 @@ function CommentsTab({
         <p className="text-xs text-ink-subtle">No comments yet.</p>
       )}
       <ul className="space-y-2.5">
-        {comments.map((c) => (
-          <li
-            key={c.id}
-            className="rounded-lg border border-line bg-paper/60 p-3"
-          >
-            <div className="flex items-center gap-2">
-              <Avatar
-                name={c.author?.name ?? '?'}
-                color={c.author?.avatarColor}
-                size="xs"
-              />
-              <span className="text-xs font-medium text-ink">
-                {c.author?.name ?? 'Unknown'}
-              </span>
-              <span className="text-[11px] text-ink-subtle">
-                · {timeAgo(c.createdAt)}
-              </span>
-            </div>
-            <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-ink">
-              {c.body}
-            </p>
-          </li>
-        ))}
+        {comments.map((c) => {
+          // Author can always delete their own; project owner can moderate any.
+          const canDelete =
+            (currentUserId !== undefined && c.authorId === currentUserId) ||
+            canModerateComments;
+          return (
+            <li
+              key={c.id}
+              className="group rounded-lg border border-line bg-paper/60 p-3"
+            >
+              <div className="flex items-center gap-2">
+                <Avatar
+                  name={c.author?.name ?? '?'}
+                  color={c.author?.avatarColor}
+                  size="xs"
+                />
+                <span className="text-xs font-medium text-ink">
+                  {c.author?.name ?? 'Unknown'}
+                </span>
+                <span className="text-[11px] text-ink-subtle">
+                  · {timeAgo(c.createdAt)}
+                </span>
+                {canDelete && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!confirm('Delete this comment?')) return;
+                      void onDeleteComment(c.id);
+                    }}
+                    aria-label="Delete comment"
+                    title="Delete comment"
+                    className="ml-auto rounded p-1 text-ink-subtle opacity-0 transition hover:bg-surface-hover hover:text-ink group-hover:opacity-100"
+                  >
+                    <Icon.Trash size={12} />
+                  </button>
+                )}
+              </div>
+              <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-ink">
+                {c.body}
+              </p>
+            </li>
+          );
+        })}
       </ul>
       <form onSubmit={onSubmit} className="rounded-lg border border-line bg-surface p-2">
         <textarea

@@ -122,6 +122,28 @@ export class ProjectsService {
     await this.getAccessible(id, userId);
   }
 
+  /**
+   * Reject any mutation on a closed project. Owners must explicitly `reopen()`
+   * the project before making changes. Called from every mutating path in
+   * tasks/comments/labels/projects services.
+   */
+  async assertNotClosed(
+    projectId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const client = tx ?? this.prisma;
+    const project = await client.project.findUnique({
+      where: { id: projectId },
+      select: { closedAt: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    if (project.closedAt) {
+      throw new BadRequestException(
+        'Project is closed; reopen it to make changes',
+      );
+    }
+  }
+
   async create(userId: string, dto: CreateProjectDto) {
     const key = await this.makeUniqueKey(dto.name);
     return this.prisma.project.create({
@@ -136,6 +158,7 @@ export class ProjectsService {
 
   async update(id: string, userId: string, dto: UpdateProjectDto) {
     await this.getOwned(id, userId);
+    await this.assertNotClosed(id);
     return this.prisma.project.update({
       where: { id },
       data: {
@@ -174,43 +197,38 @@ export class ProjectsService {
 
   /**
    * After any task mutation, reconcile the project's closedAt state:
-   *   - every task DONE        → auto-close
-   *   - any non-DONE task in a closed project → auto-reopen
-   *   - zero tasks             → keep open (empty project ≠ "closed")
+   *   - every task DONE → auto-close
+   *   - zero tasks      → keep open (empty project ≠ "closed")
+   *
+   * Auto-reopen was intentionally removed: closed projects are immutable
+   * (assertNotClosed in every mutation), so the only way to leave the closed
+   * state is through the explicit `reopen()` endpoint by the owner.
+   *
    * Returns the transition kind so callers can decide whether to broadcast.
    */
   async syncClosureState(
     projectId: string,
     tx?: Prisma.TransactionClient,
-  ): Promise<'closed' | 'reopened' | 'unchanged'> {
+  ): Promise<'closed' | 'unchanged'> {
     const client = tx ?? this.prisma;
     const project = await client.project.findUnique({
       where: { id: projectId },
       select: { closedAt: true },
     });
     if (!project) return 'unchanged';
+    if (project.closedAt) return 'unchanged';
 
     const [total, unfinished] = await Promise.all([
       client.task.count({ where: { projectId } }),
       client.task.count({ where: { projectId, status: { not: 'DONE' } } }),
     ]);
 
-    const shouldBeClosed = total > 0 && unfinished === 0;
-    const isClosed = project.closedAt !== null;
-
-    if (shouldBeClosed && !isClosed) {
+    if (total > 0 && unfinished === 0) {
       await client.project.update({
         where: { id: projectId },
         data: { closedAt: new Date() },
       });
       return 'closed';
-    }
-    if (!shouldBeClosed && isClosed) {
-      await client.project.update({
-        where: { id: projectId },
-        data: { closedAt: null },
-      });
-      return 'reopened';
     }
     return 'unchanged';
   }
@@ -258,7 +276,11 @@ export class ProjectsService {
   }
 
   async addMember(projectId: string, userId: string, memberId: string) {
-    await this.getOwned(projectId, userId);
+    const project = await this.getOwned(projectId, userId);
+    await this.assertNotClosed(projectId);
+    if (memberId === project.ownerId) {
+      throw new BadRequestException('Owner is already a member by default');
+    }
     const user = await this.prisma.user.findUnique({
       where: { id: memberId },
       select: { id: true },
@@ -273,6 +295,7 @@ export class ProjectsService {
 
   async removeMember(projectId: string, userId: string, memberId: string) {
     await this.getOwned(projectId, userId);
+    await this.assertNotClosed(projectId);
     await this.prisma.project.update({
       where: { id: projectId },
       data: { members: { disconnect: { id: memberId } } },

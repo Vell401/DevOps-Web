@@ -28,6 +28,7 @@ export class LabelsService {
     // Owner-only: members can attach existing labels via task update path,
     // but only the owner manages the label list itself.
     await this.projects.getOwned(projectId, userId);
+    await this.projects.assertNotClosed(projectId);
     try {
       return await this.prisma.label.create({
         data: {
@@ -54,6 +55,7 @@ export class LabelsService {
     });
     if (!label) throw new NotFoundException('Label not found');
     await this.projects.getOwned(label.projectId, userId);
+    await this.projects.assertNotClosed(label.projectId);
     return this.prisma.label.update({
       where: { id },
       data: {
@@ -70,6 +72,7 @@ export class LabelsService {
     });
     if (!label) throw new NotFoundException('Label not found');
     await this.projects.getOwned(label.projectId, userId);
+    await this.projects.assertNotClosed(label.projectId);
     await this.prisma.label.delete({ where: { id } });
   }
 }

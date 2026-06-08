@@ -36,6 +36,7 @@ export class CommentsService {
 
   async create(taskId: string, userId: string, dto: CreateCommentDto) {
     const task = await this.tasks.get(taskId, userId);
+    await this.projects.assertNotClosed(task.projectId);
     const body = dto.body.trim();
 
     const comment = await this.prisma.$transaction(async (tx) => {
@@ -70,9 +71,28 @@ export class CommentsService {
   }
 
   async remove(id: string, userId: string): Promise<void> {
-    const comment = await this.prisma.comment.findUnique({ where: { id } });
+    const comment = await this.prisma.comment.findUnique({
+      where: { id },
+      include: {
+        task: {
+          select: {
+            id: true,
+            projectId: true,
+            project: { select: { ownerId: true } },
+          },
+        },
+      },
+    });
     if (!comment) throw new NotFoundException('Comment not found');
-    if (comment.authorId !== userId) throw new ForbiddenException();
+    // Author can always delete their own comment. Project owner can moderate
+    // anything in their project.
+    const isAuthor = comment.authorId === userId;
+    const isOwner = comment.task.project.ownerId === userId;
+    if (!isAuthor && !isOwner) throw new ForbiddenException();
+    await this.projects.assertNotClosed(comment.task.projectId);
     await this.prisma.comment.delete({ where: { id } });
+    this.realtime.emitCommentDeleted(comment.task.projectId, comment.task.id, id);
+    const members = await this.projects.memberIds(comment.task.projectId);
+    this.realtime.emitProjectsChangedForUsers([...members, userId]);
   }
 }

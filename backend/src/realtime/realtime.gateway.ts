@@ -55,9 +55,10 @@ export class RealtimeGateway
   }
 
   async handleConnection(client: AuthedSocket) {
-    const token =
-      (client.handshake.auth as { token?: string } | undefined)?.token ??
-      (client.handshake.query?.token as string | undefined);
+    // Token is read from `auth: { token }` on the handshake. We intentionally
+    // do NOT fall back to `?token=` in the query string — access tokens in URLs
+    // leak into nginx access logs, browser history, and any intermediate proxy.
+    const token = (client.handshake.auth as { token?: string } | undefined)?.token;
     if (!token) {
       client.disconnect();
       return;
@@ -87,7 +88,11 @@ export class RealtimeGateway
   ): Promise<{ ok: true } | { ok: false; reason: string }> {
     if (!client.data.userId) return { ok: false, reason: 'unauthorized' };
     try {
-      await this.projects.getOwned(projectId, client.data.userId);
+      // Owner, explicit project member, or implicit assignee — anyone who can
+      // see the project via HTTP must also be able to receive its realtime
+      // updates. Using getOwned here silently broke realtime for every
+      // non-owner participant.
+      await this.projects.assertAccessible(projectId, client.data.userId);
       await client.join(roomFor(projectId));
       return { ok: true };
     } catch {
@@ -117,6 +122,12 @@ export class RealtimeGateway
     this.server
       .to(roomFor(projectId))
       .emit('comment-added', { taskId, comment });
+  }
+
+  emitCommentDeleted(projectId: string, taskId: string, commentId: string) {
+    this.server
+      .to(roomFor(projectId))
+      .emit('comment-deleted', { taskId, commentId });
   }
 
   /**

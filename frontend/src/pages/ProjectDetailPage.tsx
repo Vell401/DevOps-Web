@@ -42,6 +42,8 @@ export function ProjectDetailPage() {
   const [users, setUsers] = useState<UserLite[]>([]);
   const [labels, setLabels] = useState<Label[]>([]);
   const [activityVersion, setActivityVersion] = useState(0);
+  // Bumped on any realtime comment event so the open TaskDrawer can refetch.
+  const [liveCommentsKey, setLiveCommentsKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [closeBusy, setCloseBusy] = useState(false);
   const [view, setView] = useState<View>('board');
@@ -187,6 +189,11 @@ export function ProjectDetailPage() {
     },
     'comment-added': () => {
       bumpActivity();
+      setLiveCommentsKey((k) => k + 1);
+    },
+    'comment-deleted': () => {
+      bumpActivity();
+      setLiveCommentsKey((k) => k + 1);
     },
   });
 
@@ -402,6 +409,9 @@ export function ProjectDetailPage() {
         users={users}
         labels={labels}
         canEdit={isOwner && !isClosed}
+        currentUserId={user?.id}
+        canModerateComments={isOwner && !isClosed}
+        liveCommentsKey={liveCommentsKey}
         onClose={() => setTaskId(null)}
         onChanged={() => {
           void reloadTasks();

@@ -16,6 +16,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
+import { AddMemberDto } from './dto/add-member.dto';
 import { JwtAccessGuard } from '../auth/guards/jwt-access.guard';
 import { CurrentUser, AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
@@ -96,10 +97,10 @@ export class ProjectsController {
   @Post(':id/members')
   async addMember(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { userId: string },
+    @Body() dto: AddMemberDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.projects.addMember(id, user.userId, body.userId);
+    return this.projects.addMember(id, user.userId, dto.userId);
   }
 
   @Delete(':id/members/:memberId')
