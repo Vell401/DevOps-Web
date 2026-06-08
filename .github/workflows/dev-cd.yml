@@ -176,12 +176,14 @@ jobs:
       - name: Resolve deploy tag
         id: deploy_tag
         run: |
+          set -euo pipefail
           if [ -n "${{ inputs.image_tag }}" ]; then
             echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${{ needs.build.outputs.sha_tag }}" >> "$GITHUB_OUTPUT"
           fi
-          echo "Deploying tag: $(grep tag= "$GITHUB_OUTPUT" | cut -d= -f2)"
+          TAG=$(grep "^tag=" "$GITHUB_OUTPUT" | cut -d= -f2-)
+          echo "Deploying tag: ${TAG}"
 
       - name: Sync deploy assets to VM
         run: |
