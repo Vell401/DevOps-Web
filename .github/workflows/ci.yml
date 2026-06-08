@@ -1,22 +1,21 @@
 # CI — lint + tests for both backend and frontend.
 # Runs on:
-#   - pull requests targeting main or dev (gate before merge)
-#   - direct pushes to main (in case main is deployed separately)
+#   - pull requests targeting main or dev (the merge gate)
 #
-# IMPORTANT: pushes to `dev` are NOT triggered here — dev-cd.yml has its own
-# test job as the first step of the deploy pipeline, so running ci.yml on dev
-# push would just duplicate the same work and waste runner minutes.
+# IMPORTANT: direct pushes to `dev` and `main` are NOT triggered here. Each
+# deploy pipeline (dev-cd.yml for `dev`, prod-cd.yml for `main`) starts with its
+# own test job, so running ci.yml on those pushes would duplicate the same work
+# and waste runner minutes.
 #
-# Always runs on GitHub-hosted ubuntu-latest (never on the self-hosted VM), so a
-# malicious PR cannot reach the deploy machine. Fork PRs are governed by the
-# repo's "Require approval for outside collaborators" setting.
+# Always runs on GitHub-hosted ubuntu-latest (never on a self-hosted VM), so a
+# malicious pull request cannot reach a deploy machine. Fork pull requests are
+# governed by the repository's "Require approval for outside collaborators"
+# setting.
 name: CI
 
 on:
   pull_request:
     branches: [main, dev]
-  push:
-    branches: [main]
 
 permissions:
   contents: read

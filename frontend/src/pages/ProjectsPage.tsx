@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import { projectsApi } from '../api/endpoints';
-import type { Project } from '../types';
+import type { Project, UserLite } from '../types';
 import { Topbar } from '../components/Topbar';
 import { Icon } from '../ui/Icon';
+import { Avatar } from '../ui/Avatar';
 import { Spinner } from '../ui/Spinner';
+import { timeAgo } from '../lib/format';
+import { cn } from '../lib/cn';
 import type { LayoutContext } from '../components/Layout';
 
 export function ProjectsPage() {
@@ -120,7 +123,17 @@ function ProjectCard({ project }: { project: Project }) {
       {project.description && (
         <p className="text-sm text-ink-muted line-clamp-2">{project.description}</p>
       )}
-      <div className="mt-auto space-y-2">
+      <div className="mt-auto space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <PeopleRow owner={project.owner} members={project.members} />
+          <span
+            className="inline-flex shrink-0 items-center gap-1 text-[11px] text-ink-subtle"
+            title={`Created ${new Date(project.createdAt).toLocaleString()}`}
+          >
+            <Icon.Calendar size={11} />
+            {timeAgo(project.createdAt)}
+          </span>
+        </div>
         <div className="flex items-center justify-between text-xs text-ink-muted">
           <span>
             <span className="text-ink">{done}</span>
@@ -136,6 +149,52 @@ function ProjectCard({ project }: { project: Project }) {
         </div>
       </div>
     </Link>
+  );
+}
+
+/**
+ * Avatar stack of the people on a project: the owner first (highlighted with a
+ * blurple ring) followed by explicit members. Shows up to four, then "+N".
+ */
+function PeopleRow({
+  owner,
+  members,
+}: {
+  owner?: UserLite;
+  members?: UserLite[];
+}) {
+  const others = (members ?? []).filter((m) => m.id !== owner?.id);
+  const people: Array<{ user: UserLite; isOwner: boolean }> = [
+    ...(owner ? [{ user: owner, isOwner: true }] : []),
+    ...others.map((u) => ({ user: u, isOwner: false })),
+  ];
+
+  if (people.length === 0) {
+    return <span className="text-[11px] text-ink-subtle">No members</span>;
+  }
+
+  const MAX = 4;
+  const visible = people.slice(0, MAX);
+  const overflow = people.length - visible.length;
+
+  return (
+    <span className="inline-flex items-center -space-x-1.5">
+      {visible.map(({ user, isOwner }) => (
+        <Avatar
+          key={user.id}
+          name={user.name}
+          color={user.avatarColor}
+          size="sm"
+          title={isOwner ? `${user.name} · owner` : user.name}
+          className={cn(isOwner && 'ring-2 ring-blurple/70')}
+        />
+      ))}
+      {overflow > 0 && (
+        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-surface text-[10px] text-ink-muted ring-1 ring-line">
+          +{overflow}
+        </span>
+      )}
+    </span>
   );
 }
 

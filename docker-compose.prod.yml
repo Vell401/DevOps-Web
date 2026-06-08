@@ -1,6 +1,7 @@
 # Production stack — pulls pre-built images from Docker Hub.
-# Driven by GitHub Actions deploy step (.github/workflows/dev-cd.yml) which writes
-# the .env file from repository secrets before each rollout.
+# Driven by the deploy step of the CI/CD workflows (.github/workflows/dev-cd.yml
+# for the `dev` branch, prod-cd.yml for `main`), which writes the .env file from
+# repository secrets before each rollout.
 #
 # Manual usage on the VM (e.g. for inspection):
 #   cd /opt/tracker

@@ -11,6 +11,10 @@ import { UpdateProjectDto } from './dto/update-project.dto';
 
 const FALLBACK_KEY = 'PRJ';
 
+const USER_LITE = {
+  select: { id: true, name: true, email: true, avatarColor: true },
+} as const;
+
 function deriveKeyBase(name: string): string {
   const cleaned = name.trim().toUpperCase().replace(/[^A-Z0-9\s]/g, ' ');
   const words = cleaned.split(/\s+/).filter(Boolean);
@@ -65,7 +69,14 @@ export class ProjectsService {
         closedAt: opts.closed ? { not: null } : null,
       },
       orderBy: opts.closed ? { closedAt: 'desc' } : { createdAt: 'desc' },
-      include: { _count: { select: { tasks: true } } },
+      include: {
+        _count: { select: { tasks: true } },
+        // Owner + explicit members power the "people" avatar stack on the
+        // project cards. Implicit task-assignees are intentionally not loaded
+        // here — that would require scanning every task per project.
+        owner: USER_LITE,
+        members: { ...USER_LITE, orderBy: { name: 'asc' } },
+      },
     });
     if (!projects.length) return [];
     const done = await this.prisma.task.groupBy({

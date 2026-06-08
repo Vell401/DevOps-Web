@@ -76,6 +76,9 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   stats?: { total: number; done: number };
+  // Present on the list endpoint (GET /projects); omitted by GET /projects/:id.
+  owner?: UserLite;
+  members?: UserLite[];
 }
 
 export interface Label {
