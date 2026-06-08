@@ -333,12 +333,10 @@ function ProjectGlyph({
 
 function BrandMark() {
   return (
-    <span
-      aria-hidden
-      className="relative grid h-9 w-9 place-items-center rounded-lg bg-blurple text-white shadow-glow"
-    >
-      <span className="absolute inset-1 rounded-md border border-white/15" />
-      <span className="relative font-display text-[15px] font-bold">t</span>
-    </span>
+    <img
+      src="/logo.png"
+      alt="tracker"
+      className="h-9 w-9 shrink-0 object-contain"
+    />
   );
 }
