@@ -132,11 +132,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compute immutable sha tag
+      - name: Compute build metadata
         id: tag
         run: |
           short=$(echo "${GITHUB_SHA}" | cut -c1-7)
           echo "sha_tag=sha-${short}" >> "$GITHUB_OUTPUT"
+          # Short SHA for the Build-info panel, so it matches the sha-<short>
+          # image tag above (the full 40-char hash overflows the small card).
+          echo "git_sha=${short}" >> "$GITHUB_OUTPUT"
+          # head_commit.timestamp is only set for push events; fall back to now
+          # so a workflow_dispatch rebuild still bakes a real, parseable date.
+          build_time="${{ github.event.head_commit.timestamp }}"
+          if [ -z "$build_time" ]; then
+            build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          fi
+          echo "build_time=${build_time}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -158,11 +168,14 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.component.image }}:latest
           cache-from: type=gha,scope=${{ matrix.component.name }}
           cache-to: type=gha,scope=${{ matrix.component.name }},mode=max
+          # Provenance args are consumed only by the backend image; emit them
+          # solely for that component so the frontend build doesn't warn about
+          # unconsumed build-args.
           build-args: |
             VITE_API_URL=${{ vars.VITE_API_URL || '/api' }}
-            GIT_SHA=${{ github.sha }}
-            BUILD_TIME=${{ github.event.head_commit.timestamp }}
-            APP_VERSION=${{ github.ref_name }}
+            ${{ matrix.component.name == 'backend' && format('GIT_SHA={0}', steps.tag.outputs.git_sha) || '' }}
+            ${{ matrix.component.name == 'backend' && format('BUILD_TIME={0}', steps.tag.outputs.build_time) || '' }}
+            ${{ matrix.component.name == 'backend' && format('APP_VERSION={0}', github.ref_name) || '' }}
 
   # ---------------------------------------------------------------------------
   # 3. DEPLOY — on the self-hosted runner, on the prod VM

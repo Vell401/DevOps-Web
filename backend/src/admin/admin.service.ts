@@ -191,11 +191,6 @@ export class AdminService {
   }
 
   /**
-   * Operational metrics for the admin panel: live realtime connections, active
-   * sessions, object-storage usage (derived cheaply from attachment rows rather
-   * than scanning the bucket), and the in-memory slow-query / rate-limit feeds.
-   */
-  /**
    * Operational metrics for the admin panel. Designed to be cheap enough to
    * poll: the realtime / slow-query / rate-limit feeds are read from an
    * in-memory store (O(1), updated continuously by the app as events happen,
@@ -205,6 +200,8 @@ export class AdminService {
    */
   async metrics() {
     const derived = await this.derivedMetrics();
+    const mem = process.memoryUsage();
+    const uptimeSec = Math.floor(process.uptime());
 
     return {
       realtime: this.metricsStore.realtime(),
@@ -215,9 +212,9 @@ export class AdminService {
       rateLimit: this.metricsStore.rateLimitSnapshot(),
       http: this.metricsStore.httpSnapshot(),
       process: {
-        uptimeSec: Math.floor(process.uptime()),
-        rssMb: Math.round(process.memoryUsage().rss / 1048576),
-        heapUsedMb: Math.round(process.memoryUsage().heapUsed / 1048576),
+        uptimeSec,
+        rssMb: Math.round(mem.rss / 1048576),
+        heapUsedMb: Math.round(mem.heapUsed / 1048576),
         nodeVersion: process.version,
       },
       build: {
@@ -226,7 +223,7 @@ export class AdminService {
         buildTime: this.cfg.buildTime,
         nodeEnv: this.cfg.nodeEnv,
         // Process start derived from uptime — no extra state to track.
-        startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+        startedAt: new Date(Date.now() - uptimeSec * 1000).toISOString(),
       },
       // When the cached DB figures above were last refreshed, so the UI can
       // show "as of …" rather than implying they're real-time.

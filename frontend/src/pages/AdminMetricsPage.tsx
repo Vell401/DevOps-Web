@@ -115,7 +115,7 @@ export function AdminMetricsPage() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    {(['2xx', '3xx', '4xx', '5xx'] as const).map((c) => (
+                    {(['1xx', '2xx', '3xx', '4xx', '5xx'] as const).map((c) => (
                       <span
                         key={c}
                         className="chip inline-flex items-center gap-1 bg-chip-gray text-ink-muted"
@@ -164,15 +164,8 @@ export function AdminMetricsPage() {
                 <StatCard label="Version" value={metrics.build.version} />
                 <StatCard label="Git SHA" value={metrics.build.gitSha} />
                 <StatCard label="Environment" value={metrics.build.nodeEnv} />
-                <StatCard
-                  label="Built"
-                  value={
-                    metrics.build.buildTime === 'unknown'
-                      ? '—'
-                      : timeAgo(metrics.build.buildTime)
-                  }
-                />
-                <StatCard label="Started" value={timeAgo(metrics.build.startedAt)} />
+                <StatCard label="Built" value={buildTimeLabel(metrics.build.buildTime)} />
+                <StatCard label="Started" value={buildTimeLabel(metrics.build.startedAt)} />
               </div>
             </section>
 
@@ -253,11 +246,21 @@ function MetricPanel({
 }
 
 const STATUS_DOT: Record<string, string> = {
+  '1xx': '#3B82F6',
   '2xx': '#2FA968',
   '3xx': '#6B7280',
   '4xx': '#C9852B',
   '5xx': '#C0392B',
 };
+
+// Provenance timestamps may be absent or a sentinel ('unknown', or an empty
+// string from a CI expression that resolved to nothing) for images built
+// without build-args. Render those as an em dash rather than leaking the
+// literal "Invalid Date" that timeAgo() would otherwise return.
+function buildTimeLabel(v: string): string {
+  if (!v || v === 'unknown' || Number.isNaN(Date.parse(v))) return '—';
+  return timeAgo(v);
+}
 
 function RequestChart({ data }: { data: { minute: string; count: number }[] }) {
   const max = Math.max(1, ...data.map((d) => d.count));
