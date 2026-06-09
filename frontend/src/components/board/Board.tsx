@@ -84,14 +84,6 @@ export function Board({ tasks, projectKey, onOpen, onMove, onQuickAdd }: Props) 
             </header>
 
             <div className="flex-1 space-y-2 overflow-y-auto px-2.5 pb-3 pt-1 scrollbar-thin">
-              {items.length === 0 && (
-                <button
-                  onClick={() => onQuickAdd(status)}
-                  className="w-full rounded-md border border-dashed border-line py-6 text-xs text-ink-subtle hover:border-ink-muted hover:text-ink"
-                >
-                  + Add task
-                </button>
-              )}
               {items.map((task) => (
                 <TaskCard
                   key={task.id}
@@ -103,6 +95,19 @@ export function Board({ tasks, projectKey, onOpen, onMove, onQuickAdd }: Props) 
                   dragging={dragging === task.id}
                 />
               ))}
+              {/* Always offer an add affordance at the bottom of the column —
+                  not just when it's empty — so a populated column never hides
+                  the way to create the next task. Taller when empty so it still
+                  reads as the column's empty state. */}
+              <button
+                onClick={() => onQuickAdd(status)}
+                className={cn(
+                  'w-full rounded-md border border-dashed border-line text-xs text-ink-subtle transition hover:border-ink-muted hover:text-ink',
+                  items.length === 0 ? 'py-6' : 'py-2',
+                )}
+              >
+                + Add task
+              </button>
             </div>
           </section>
         );

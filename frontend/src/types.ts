@@ -65,6 +65,13 @@ export interface AdminMetrics {
   slowQueries: { model: string; action: string; durationMs: number; at: string }[];
   slowQueryThresholdMs: number;
   rateLimit: { total: number; byRoute: { route: string; count: number }[] };
+  process: {
+    uptimeSec: number;
+    rssMb: number;
+    heapUsedMb: number;
+    nodeVersion: string;
+  };
+  derivedAt: string;
 }
 
 export interface AdminStats {

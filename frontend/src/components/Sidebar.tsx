@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { projectsApi } from '../api/endpoints';
 import type { Project } from '../types';
 import { Icon } from '../ui/Icon';
@@ -90,9 +90,7 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
         <NavSection>
           <NavLinkItem to="/projects" icon={<Icon.Layers size={14} />} label="All projects" end />
           <NavLinkItem to="/activity" icon={<Icon.Activity size={14} />} label="Activity" />
-          {user?.isAdmin && (
-            <NavLinkItem to="/admin" icon={<Icon.Sparkle size={14} />} label="Admin" />
-          )}
+          {user?.isAdmin && <AdminNavSection />}
         </NavSection>
 
         <div className="mt-5 flex items-center justify-between px-3 pb-1.5">
@@ -264,6 +262,69 @@ function ClosedSection({
 
 function NavSection({ children }: { children: React.ReactNode }) {
   return <ul className="space-y-0.5">{children}</ul>;
+}
+
+// Expandable Admin entry: reveals the admin sub-pages (Overview, System
+// metrics). Auto-opens whenever you're somewhere under /admin.
+function AdminNavSection() {
+  const location = useLocation();
+  const onAdmin = location.pathname.startsWith('/admin');
+  const [expanded, setExpanded] = useState(onAdmin);
+
+  useEffect(() => {
+    if (onAdmin) setExpanded(true);
+  }, [onAdmin]);
+
+  return (
+    <li>
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className={cn(
+          'flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm transition',
+          onAdmin
+            ? 'text-ink'
+            : 'text-ink-muted hover:bg-surface-hover/60 hover:text-ink',
+        )}
+      >
+        <Icon.Sparkle size={14} />
+        <span>Admin</span>
+        <Icon.Caret
+          size={10}
+          className={cn(
+            'ml-auto transition-transform',
+            expanded ? 'rotate-0' : '-rotate-90',
+          )}
+        />
+      </button>
+      {expanded && (
+        <ul className="mb-1 ml-4 space-y-0.5 border-l border-line pl-2">
+          <SubNavLink to="/admin" label="Overview" end />
+          <SubNavLink to="/admin/metrics" label="System metrics" />
+        </ul>
+      )}
+    </li>
+  );
+}
+
+function SubNavLink({ to, label, end }: { to: string; label: string; end?: boolean }) {
+  return (
+    <li>
+      <NavLink
+        to={to}
+        end={end}
+        className={({ isActive }) =>
+          cn(
+            'block rounded-md px-3 py-1.5 text-sm transition',
+            isActive
+              ? 'bg-surface-hover text-ink'
+              : 'text-ink-muted hover:bg-surface-hover/60 hover:text-ink',
+          )
+        }
+      >
+        {label}
+      </NavLink>
+    </li>
+  );
 }
 
 function NavLinkItem({

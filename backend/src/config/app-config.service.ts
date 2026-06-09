@@ -63,6 +63,12 @@ export class AppConfigService {
     return parseInt(this.config.get<string>('SLOW_QUERY_MS', '300'), 10);
   }
 
+  /** TTL (ms) for cached DB-derived admin metrics, so repeated dashboard polls
+   *  never re-run the aggregate queries more than once per window. */
+  get metricsCacheTtlMs(): number {
+    return parseInt(this.config.get<string>('METRICS_CACHE_TTL_MS', '30000'), 10);
+  }
+
   // --- Object storage (S3 / MinIO) ---
 
   get s3Endpoint(): string {

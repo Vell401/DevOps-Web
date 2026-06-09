@@ -7,6 +7,7 @@ import { ClosedProjectsPage } from './pages/ClosedProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { ActivityPage } from './pages/ActivityPage';
 import { AdminPage } from './pages/AdminPage';
+import { AdminMetricsPage } from './pages/AdminMetricsPage';
 import { RequireAuth } from './auth/RequireAuth';
 import { RequireAdmin } from './auth/RequireAdmin';
 
@@ -32,6 +33,14 @@ export function App() {
           element={
             <RequireAdmin>
               <AdminPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/metrics"
+          element={
+            <RequireAdmin>
+              <AdminMetricsPage />
             </RequireAdmin>
           }
         />

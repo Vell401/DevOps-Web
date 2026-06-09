@@ -17,6 +17,15 @@ export class AdminService {
     private readonly cfg: AppConfigService,
   ) {}
 
+  // Cached snapshot of the DB-derived metrics. Populated lazily and reused
+  // within `metricsCacheTtlMs` so dashboard polling can't hammer the database.
+  private derivedCache: {
+    at: number;
+    iso: string;
+    storage: { totalBytes: number; fileCount: number };
+    sessions: number;
+  } | null = null;
+
   async listUsers() {
     const users = await this.prisma.user.findMany({
       orderBy: { createdAt: 'asc' },
@@ -186,7 +195,45 @@ export class AdminService {
    * sessions, object-storage usage (derived cheaply from attachment rows rather
    * than scanning the bucket), and the in-memory slow-query / rate-limit feeds.
    */
+  /**
+   * Operational metrics for the admin panel. Designed to be cheap enough to
+   * poll: the realtime / slow-query / rate-limit feeds are read from an
+   * in-memory store (O(1), updated continuously by the app as events happen,
+   * NOT computed here), the process gauges are local syscalls, and the only
+   * database work — the storage aggregate and session count — is cached for
+   * `metricsCacheTtlMs`, so N admins polling cost at most one query per window.
+   */
   async metrics() {
+    const derived = await this.derivedMetrics();
+
+    return {
+      realtime: this.metricsStore.realtime(),
+      sessions: derived.sessions,
+      storage: derived.storage,
+      slowQueries: this.metricsStore.recentSlowQueries(),
+      slowQueryThresholdMs: this.cfg.slowQueryMs,
+      rateLimit: this.metricsStore.rateLimitSnapshot(),
+      process: {
+        uptimeSec: Math.floor(process.uptime()),
+        rssMb: Math.round(process.memoryUsage().rss / 1048576),
+        heapUsedMb: Math.round(process.memoryUsage().heapUsed / 1048576),
+        nodeVersion: process.version,
+      },
+      // When the cached DB figures above were last refreshed, so the UI can
+      // show "as of …" rather than implying they're real-time.
+      derivedAt: derived.iso,
+    };
+  }
+
+  /** Storage usage + active sessions, computed from the DB at most once per
+   *  cache window. The storage figure is summed from attachment rows rather
+   *  than scanning the object store. */
+  private async derivedMetrics() {
+    const now = Date.now();
+    if (this.derivedCache && now - this.derivedCache.at < this.cfg.metricsCacheTtlMs) {
+      return this.derivedCache;
+    }
+
     const [storage, sessions] = await Promise.all([
       this.prisma.attachment.aggregate({
         _sum: { size: true },
@@ -197,19 +244,16 @@ export class AdminService {
       }),
     ]);
 
-    const realtime = this.metricsStore.realtime();
-
-    return {
-      realtime,
-      sessions,
+    this.derivedCache = {
+      at: now,
+      iso: new Date(now).toISOString(),
       storage: {
         totalBytes: storage._sum.size ?? 0,
         fileCount: storage._count._all,
       },
-      slowQueries: this.metricsStore.recentSlowQueries(),
-      slowQueryThresholdMs: this.cfg.slowQueryMs,
-      rateLimit: this.metricsStore.rateLimitSnapshot(),
+      sessions,
     };
+    return this.derivedCache;
   }
 
   /** Recent authentication attempts for one user (newest first). */
