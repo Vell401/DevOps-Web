@@ -54,7 +54,35 @@ docker compose exec \
 
 - Frontend http://localhost:5173 · API http://localhost:3000/api · Swagger `/api/docs`
 - Health: `/api/health/live` (process), `/api/health/ready` (DB ping)
-- Tests: `make test-backend` (Jest), `cd frontend && npm test` (Vitest), `make lint`
+
+### Tests & lint
+
+There is **no `make lint` target** — lint is run per-package. The `make test-*`
+targets run inside containers; for tight feedback loops run npm scripts directly
+in `backend/` or `frontend/` (needs a local `npm install`).
+
+```bash
+# Backend (NestJS / Jest) — from backend/
+npm test                                  # unit tests (*.spec.ts under src/)
+npm test -- src/auth/auth.service.spec.ts # a single test file
+npm test -- -t "rotates refresh token"    # tests matching a name
+npm run test:e2e                          # e2e (test/, uses test/jest-e2e.json)
+npm run test:cov                          # coverage
+npm run lint                              # eslint, --max-warnings=0
+
+# Frontend (Vite / Vitest) — from frontend/
+npm test                                  # vitest run (one-shot)
+npm test -- ProjectsPage                  # files/tests matching a pattern
+npm run test:watch                        # watch mode
+npm run lint                              # eslint, --max-warnings=0
+
+# In-container equivalents
+make test-backend   # docker compose exec backend npm test
+make test-frontend  # docker compose exec frontend npm test
+```
+
+CI (`ci.yml`) runs `npm run lint` + tests for both packages — lint is gated at
+zero warnings, so treat warnings as errors.
 
 **Seeded accounts**: `admin@tracker.local` and `test@tracker.local`. Passwords have
 no defaults — they are taken from the required `SEED_ADMIN_PASSWORD` /

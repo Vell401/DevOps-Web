@@ -1,11 +1,14 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 
@@ -31,7 +34,11 @@ function deriveKeyBase(name: string): string {
 
 @Injectable()
 export class ProjectsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => RealtimeGateway))
+    private readonly realtime: RealtimeGateway,
+  ) {}
 
   /**
    * Membership rule: a user has access to a project if any of these is true:
@@ -301,6 +308,10 @@ export class ProjectsService {
       where: { id: projectId },
       data: { members: { connect: { id: memberId } } },
     });
+    // The new member's sidebar/projects list (and everyone else's view) should
+    // reflect the change live, without a manual reload. memberIds now includes
+    // the freshly connected member.
+    this.realtime.emitProjectsChangedForUsers(await this.memberIds(projectId));
     return this.listMembers(projectId, userId);
   }
 
@@ -311,6 +322,12 @@ export class ProjectsService {
       where: { id: projectId },
       data: { members: { disconnect: { id: memberId } } },
     });
+    // Notify the remaining participants plus the removed user, whose sidebar
+    // should drop the project (unless they remain an implicit task-assignee).
+    this.realtime.emitProjectsChangedForUsers([
+      ...(await this.memberIds(projectId)),
+      memberId,
+    ]);
     return this.listMembers(projectId, userId);
   }
 

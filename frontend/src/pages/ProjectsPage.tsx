@@ -50,6 +50,8 @@ export function ProjectsPage() {
       />
 
       <div className="flex-1 overflow-y-auto px-8 py-8">
+        {/* Cap content width on ultra-wide displays; full-bleed up to ~2K. */}
+        <div className="mx-auto max-w-[2200px]">
         <div className="mb-8 max-w-3xl">
           <h1 className="font-display text-3xl font-semibold tracking-tight text-ink">
             Your projects
@@ -74,7 +76,7 @@ export function ProjectsPage() {
         )}
 
         {!loading && filtered.length > 0 && (
-          <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {filtered.map((p) => (
               <li key={p.id}>
                 <ProjectCard project={p} />
@@ -92,6 +94,7 @@ export function ProjectsPage() {
             </li>
           </ul>
         )}
+        </div>
       </div>
     </>
   );

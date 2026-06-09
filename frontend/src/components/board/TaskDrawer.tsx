@@ -21,6 +21,7 @@ import { Avatar, AvatarStack } from '../../ui/Avatar';
 import { LabelChip } from '../../ui/LabelChip';
 import { Icon } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
+import { AutoTextarea } from '../../ui/AutoTextarea';
 import { Popover, PopoverItem } from '../../ui/Popover';
 import { StatusBadge } from '../../ui/StatusBadge';
 import { PriorityFlag } from '../../ui/PriorityFlag';
@@ -34,6 +35,7 @@ import {
   STATUS_ORDER,
 } from '../../lib/meta';
 import { timeAgo, toIsoDateInput } from '../../lib/format';
+import { apiError } from '../../lib/apiError';
 import { cn } from '../../lib/cn';
 import type { LabelColor } from '../../types';
 
@@ -105,6 +107,16 @@ export function TaskDrawer({
     } finally {
       setLoading(false);
     }
+  }, [taskId]);
+
+  // Lightweight refetch of just the task (e.g. after a subtask add/toggle) so
+  // the drawer's subtasks list updates without re-pulling comments/files. The
+  // PATCH response intentionally omits the subtasks array, so a no-op patch
+  // would not surface a newly created subtask — we re-GET the task instead.
+  const reloadTask = useCallback(async () => {
+    if (!taskId) return;
+    const t = await tasksApi.get(taskId);
+    setTask(t.data);
   }, [taskId]);
 
   useEffect(() => {
@@ -185,8 +197,8 @@ export function TaskDrawer({
         const a = await tasksApi.activity(taskId);
         setActivities(a.data);
         onChanged();
-      } catch {
-        toast.push('Could not update task', 'error');
+      } catch (err) {
+        toast.push(apiError(err, 'Could not update task'), 'error');
       }
     },
     [taskId, onChanged, toast],
@@ -200,13 +212,13 @@ export function TaskDrawer({
       toast.push('Task deleted', 'success');
       onChanged();
       onClose();
-    } catch {
-      toast.push('Could not delete task', 'error');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not delete task'), 'error');
     }
   };
 
   return (
-    <ModalShell open={taskId !== null} onClose={onClose} width={920}>
+    <ModalShell open={taskId !== null} onClose={onClose} width={1100}>
       {loading && !task && (
         <div className="flex items-center justify-center px-6 py-16 text-sm text-ink-muted">
           <Spinner /> <span className="ml-2">Loading task…</span>
@@ -256,6 +268,10 @@ export function TaskDrawer({
                 canEdit={canEdit}
                 onPatch={patch}
                 onLabelsChanged={onLabelsChanged}
+                onSubtasksChanged={async () => {
+                  await reloadTask();
+                  onChanged();
+                }}
               />
             )}
             {tab === 'comments' && (
@@ -380,6 +396,7 @@ function OverviewTab({
   canEdit,
   onPatch,
   onLabelsChanged,
+  onSubtasksChanged,
 }: {
   task: Task;
   users: UserLite[];
@@ -387,6 +404,7 @@ function OverviewTab({
   canEdit: boolean;
   onPatch: (body: TaskBody) => void;
   onLabelsChanged: () => void;
+  onSubtasksChanged: () => void;
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
@@ -585,13 +603,13 @@ function OverviewTab({
 
       <section>
         <SectionTitle>Description</SectionTitle>
-        <textarea
+        <AutoTextarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           onBlur={commitDescription}
           readOnly={!canEdit}
           placeholder={canEdit ? 'Add more context about this task…' : 'No description'}
-          className="input min-h-[120px] resize-y bg-surface text-sm leading-relaxed"
+          className="input min-h-[120px] max-h-[55vh] bg-surface text-sm leading-relaxed"
         />
       </section>
 
@@ -599,7 +617,7 @@ function OverviewTab({
         task={task}
         users={users}
         canEdit={canEdit}
-        onChanged={() => onPatch({})}
+        onChanged={onSubtasksChanged}
       />
     </div>
   );
@@ -819,8 +837,8 @@ function SubtasksSection({
       setAddOpen(false);
       onChanged();
       toast.push('Subtask added', 'success');
-    } catch {
-      toast.push('Could not add subtask', 'error');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not add subtask'), 'error');
     } finally {
       setBusy(false);
     }
@@ -999,8 +1017,9 @@ function CommentsTab({
       await commentsApi.create(taskId, text);
       setBody('');
       onAdded();
-    } catch {
-      toast.push('Could not post comment', 'error');
+      toast.push('Comment posted', 'success');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not post comment'), 'error');
     } finally {
       setBusy(false);
     }
@@ -1008,11 +1027,36 @@ function CommentsTab({
 
   return (
     <div className="space-y-3">
+      <form onSubmit={onSubmit} className="rounded-lg border border-line bg-surface p-2">
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Write a comment… (Cmd/Ctrl+Enter to send)"
+          rows={3}
+          className="w-full resize-none bg-transparent px-2 py-1 text-sm text-ink placeholder:text-ink-subtle focus:outline-none"
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              void onSubmit(e as unknown as FormEvent);
+            }
+          }}
+        />
+        <div className="flex items-center justify-between border-t border-line pt-2">
+          <span className="text-[11px] text-ink-subtle">
+            Markdown coming soon · Cmd/Ctrl + Enter to send
+          </span>
+          <button type="submit" className="btn-primary h-7 px-2 text-xs" disabled={busy || !body.trim()}>
+            {busy ? <Spinner className="border-paper border-t-paper/40" /> : 'Comment'}
+          </button>
+        </div>
+      </form>
       {comments.length === 0 && (
         <p className="text-xs text-ink-subtle">No comments yet.</p>
       )}
+      {/* Newest first: most recent comments sit directly under the input box. */}
       <ul className="space-y-2.5">
-        {comments.map((c) => {
+        {[...comments]
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          .map((c) => {
           // Author can always delete their own; project owner can moderate any.
           const canDelete =
             (currentUserId !== undefined && c.authorId === currentUserId) ||
@@ -1056,28 +1100,6 @@ function CommentsTab({
           );
         })}
       </ul>
-      <form onSubmit={onSubmit} className="rounded-lg border border-line bg-surface p-2">
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Write a comment… (Cmd/Ctrl+Enter to send)"
-          rows={3}
-          className="w-full resize-none bg-transparent px-2 py-1 text-sm text-ink placeholder:text-ink-subtle focus:outline-none"
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-              void onSubmit(e as unknown as FormEvent);
-            }
-          }}
-        />
-        <div className="flex items-center justify-between border-t border-line pt-2">
-          <span className="text-[11px] text-ink-subtle">
-            Markdown coming soon · Cmd/Ctrl + Enter to send
-          </span>
-          <button type="submit" className="btn-primary h-7 px-2 text-xs" disabled={busy || !body.trim()}>
-            {busy ? <Spinner className="border-paper border-t-paper/40" /> : 'Comment'}
-          </button>
-        </div>
-      </form>
     </div>
   );
 }

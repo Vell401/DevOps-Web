@@ -13,6 +13,7 @@ import type {
   TaskStatus,
   UserLite,
 } from '../types';
+import { apiError } from '../lib/apiError';
 import { Topbar } from '../components/Topbar';
 import { Board } from '../components/board/Board';
 import { TaskListView } from '../components/board/TaskListView';
@@ -123,8 +124,8 @@ export function ProjectDetailPage() {
       // core directly so the local user sees the banner update without lag.
       void reloadCore();
       reloadProjects();
-    } catch {
-      toast.push('Could not move task', 'error');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not move task'), 'error');
       setTasks((prev) =>
         prev.map((t) => (t.id === taskIdToMove ? { ...t, status: before.status } : t)),
       );

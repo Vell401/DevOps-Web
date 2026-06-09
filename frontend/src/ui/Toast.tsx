@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../lib/cn';
 
 interface ToastMsg {
@@ -38,21 +39,26 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={cn(
-              'pointer-events-auto rounded-md border px-3 py-2 text-sm shadow-card animate-[toastin_200ms_ease-out]',
-              t.tone === 'error' && 'border-chip-red bg-chip-red/70 text-[#7A2218]',
-              t.tone === 'success' && 'border-leaf-200 bg-chip-green text-[#1B6A48]',
-              t.tone === 'default' && 'border-line bg-surface text-ink',
-            )}
-          >
-            {t.text}
-          </div>
-        ))}
-      </div>
+      {/* Portal to <body> with a high z-index so toasts always sit above modal
+          and drawer overlays — they must never be dimmed by a backdrop. */}
+      {createPortal(
+        <div className="pointer-events-none fixed bottom-4 right-4 z-[1000] flex flex-col gap-2">
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className={cn(
+                'pointer-events-auto rounded-md border px-3 py-2 text-sm shadow-card animate-[toastin_200ms_ease-out]',
+                t.tone === 'error' && 'border-chip-red bg-chip-red/70 text-[#7A2218]',
+                t.tone === 'success' && 'border-leaf-200 bg-chip-green text-[#1B6A48]',
+                t.tone === 'default' && 'border-line bg-surface text-ink',
+              )}
+            >
+              {t.text}
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
       <style>
         {`@keyframes toastin { from { transform: translateY(6px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }`}
       </style>

@@ -4,9 +4,9 @@ export function AuthSplit({ children }: { children: ReactNode }) {
   return (
     <div className="grid min-h-screen w-screen bg-paper bg-noise md:grid-cols-2">
       <aside className="relative hidden flex-col justify-between bg-surface-sunken bg-ambient px-10 py-10 md:flex">
-        <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="tracker" className="h-9 w-9 shrink-0 object-contain" />
-          <span className="font-display text-lg font-semibold tracking-tight text-ink">
+        <div className="flex items-center gap-2.5">
+          <img src="/logo.png" alt="tracker" className="h-12 w-12 shrink-0 object-contain" />
+          <span className="font-display text-xl font-semibold tracking-tight text-ink">
             tracker
           </span>
         </div>

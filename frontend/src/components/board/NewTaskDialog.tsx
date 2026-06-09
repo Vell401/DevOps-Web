@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import type { Label, TaskPriority, TaskStatus, UserLite } from '../../types';
 import { Dialog } from '../../ui/Dialog';
+import { AutoTextarea } from '../../ui/AutoTextarea';
 import { Spinner } from '../../ui/Spinner';
 import { Avatar } from '../../ui/Avatar';
 import { LabelChip } from '../../ui/LabelChip';
@@ -9,6 +10,7 @@ import { Icon } from '../../ui/Icon';
 import { STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from '../../lib/meta';
 import { tasksApi } from '../../api/endpoints';
 import { useToast } from '../../ui/Toast';
+import { apiError } from '../../lib/apiError';
 import { cn } from '../../lib/cn';
 
 interface Props {
@@ -66,8 +68,8 @@ export function NewTaskDialog({
       toast.push('Task created', 'success');
       onCreated();
       onClose();
-    } catch {
-      toast.push('Could not create task', 'error');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not create task'), 'error');
     } finally {
       setBusy(false);
     }
@@ -81,15 +83,15 @@ export function NewTaskDialog({
       <form onSubmit={onSubmit} className="space-y-3">
         <input
           autoFocus
-          className="w-full rounded-md border-0 bg-transparent px-0 py-1 font-display text-xl font-medium text-ink placeholder:text-ink-subtle focus-visible:shadow-focus"
+          className="w-full rounded-md border-0 bg-transparent px-3 py-1 font-display text-xl font-medium text-ink placeholder:text-ink-subtle focus-visible:shadow-focus"
           placeholder="Task title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           required
           minLength={2}
         />
-        <textarea
-          className="input min-h-[100px] resize-y"
+        <AutoTextarea
+          className="input min-h-[100px] max-h-[45vh]"
           placeholder="Add a description (optional)"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
