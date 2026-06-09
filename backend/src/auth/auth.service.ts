@@ -88,6 +88,32 @@ export class AuthService {
       .catch(() => undefined);
   }
 
+  /**
+   * Self-service password change. Verifies the current password, stores the new
+   * hash, and revokes every existing refresh session (defence against a leaked
+   * session). A fresh token pair is then issued so the caller's current session
+   * stays signed in while all other devices are logged out.
+   */
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<TokenPair> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('Invalid credentials');
+
+    const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!ok) throw new UnauthorizedException('Current password is incorrect');
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+      this.prisma.refreshToken.deleteMany({ where: { userId } }),
+    ]);
+
+    return this.issueTokens(user.id, user.email);
+  }
+
   private async issueTokens(userId: string, email: string): Promise<TokenPair> {
     const payload: JwtPayload = { sub: userId, email };
 

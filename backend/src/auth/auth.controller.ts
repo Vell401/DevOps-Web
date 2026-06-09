@@ -1,4 +1,12 @@
-import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
@@ -6,6 +14,7 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAccessGuard } from './guards/jwt-access.guard';
 import { CurrentUser, AuthenticatedUser } from './decorators/current-user.decorator';
 import { UsersService } from '../users/users.service';
@@ -51,5 +60,21 @@ export class AuthController {
   @UseGuards(JwtAccessGuard)
   me(@CurrentUser() user: AuthenticatedUser) {
     return this.users.findById(user.userId);
+  }
+
+  @Patch('me/password')
+  @Throttle(AUTH_THROTTLE)
+  @ApiBearerAuth()
+  @UseGuards(JwtAccessGuard)
+  @HttpCode(200)
+  changePassword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.auth.changePassword(
+      user.userId,
+      dto.currentPassword,
+      dto.newPassword,
+    );
   }
 }
