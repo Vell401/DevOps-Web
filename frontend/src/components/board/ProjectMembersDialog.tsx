@@ -7,6 +7,7 @@ import { Icon } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
 import { Popover, PopoverItem } from '../../ui/Popover';
 import { useToast } from '../../ui/Toast';
+import { apiError } from '../../lib/apiError';
 
 interface Props {
   open: boolean;
@@ -59,8 +60,8 @@ export function ProjectMembersDialog({
       setMembers(data);
       onChanged?.();
       toast.push('Member added', 'success');
-    } catch {
-      toast.push('Could not add member', 'error');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not add member'), 'error');
     }
   };
 
@@ -70,8 +71,8 @@ export function ProjectMembersDialog({
       setMembers(data);
       onChanged?.();
       toast.push('Member removed', 'success');
-    } catch {
-      toast.push('Could not remove member', 'error');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not remove member'), 'error');
     }
   };
 

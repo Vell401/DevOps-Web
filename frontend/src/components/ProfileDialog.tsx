@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthContext';
 import { useToast } from '../ui/Toast';
 import { authApi } from '../api/endpoints';
 import { tokenStorage } from '../api/client';
+import { apiError } from '../lib/apiError';
 
 interface Props {
   open: boolean;
@@ -54,9 +55,7 @@ export function ProfileDialog({ open, onClose }: Props) {
       reset();
       toast.push('Password changed · other devices were signed out', 'success');
     } catch (err) {
-      const raw = (err as { response?: { data?: { message?: string | string[] } } })
-        .response?.data?.message;
-      toast.push(Array.isArray(raw) ? raw[0] : raw ?? 'Could not change password', 'error');
+      toast.push(apiError(err, 'Could not change password'), 'error');
     } finally {
       setBusy(false);
     }
