@@ -5,7 +5,7 @@ import { AVATAR_TINTS } from '../lib/meta';
 interface AvatarProps {
   name: string;
   color?: string;
-  size?: 'xs' | 'sm' | 'md';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   className?: string;
   title?: string;
 }
@@ -14,6 +14,7 @@ const SIZES = {
   xs: 'h-5 w-5 text-[10px]',
   sm: 'h-6 w-6 text-[11px]',
   md: 'h-8 w-8 text-xs',
+  lg: 'h-16 w-16 text-xl',
 };
 
 export function Avatar({ name, color = 'gray', size = 'sm', className, title }: AvatarProps) {

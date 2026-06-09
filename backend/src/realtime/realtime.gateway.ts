@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { forwardRef, Inject, Logger } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -47,6 +47,7 @@ export class RealtimeGateway
   constructor(
     private readonly jwt: JwtService,
     private readonly cfg: AppConfigService,
+    @Inject(forwardRef(() => ProjectsService))
     private readonly projects: ProjectsService,
   ) {}
 

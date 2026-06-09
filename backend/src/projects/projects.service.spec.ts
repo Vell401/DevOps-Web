@@ -3,6 +3,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 import { ProjectsService } from './projects.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 describe('ProjectsService', () => {
   let service: ProjectsService;
@@ -15,6 +16,7 @@ describe('ProjectsService', () => {
       delete: jest.fn(),
     },
   };
+  const realtimeMock = { emitProjectsChangedForUsers: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -22,6 +24,7 @@ describe('ProjectsService', () => {
       providers: [
         ProjectsService,
         { provide: PrismaService, useValue: prismaMock },
+        { provide: RealtimeGateway, useValue: realtimeMock },
       ],
     }).compile();
     service = moduleRef.get(ProjectsService);

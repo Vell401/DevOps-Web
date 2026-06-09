@@ -5,6 +5,7 @@ import type { Project } from '../types';
 import { Icon } from '../ui/Icon';
 import { Avatar } from '../ui/Avatar';
 import { useAuth } from '../auth/AuthContext';
+import { ProfileDialog } from './ProfileDialog';
 import { cn } from '../lib/cn';
 
 interface Props {
@@ -31,6 +32,7 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
   // Persist Closed-section open/closed across reloads.
   const [closedExpanded, setClosedExpanded] = useState<boolean>(readClosedExpanded);
   const [loadingClosed, setLoadingClosed] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -68,17 +70,21 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
 
   return (
     <aside className="flex h-full w-60 flex-col bg-surface-sunken">
-      <div className="flex items-center gap-2 px-4 pt-4 pb-3">
+      <Link
+        to="/projects"
+        className="flex items-center gap-2.5 px-4 pt-4 pb-3 transition hover:opacity-90"
+        title="Go to projects"
+      >
         <BrandMark />
         <div className="flex-1">
-          <div className="font-display text-[15px] font-semibold leading-tight text-ink">
+          <div className="font-display text-base font-semibold leading-tight text-ink">
             tracker
           </div>
           <div className="text-[11px] uppercase tracking-[0.14em] text-ink-subtle">
             workspace
           </div>
         </div>
-      </div>
+      </Link>
 
       <nav className="flex-1 overflow-y-auto px-2 scrollbar-thin">
         <NavSection>
@@ -148,11 +154,17 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
 
       <div className="p-2.5">
         <div className="flex items-center gap-2 rounded-md bg-surface-deep px-2.5 py-2">
-          <Avatar name={user?.name ?? '?'} color={(user as { avatarColor?: string })?.avatarColor} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-ink">{user?.name}</div>
-            <div className="truncate text-[11px] text-ink-subtle">{user?.email}</div>
-          </div>
+          <button
+            onClick={() => setProfileOpen(true)}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left transition hover:opacity-90"
+            title="View profile"
+          >
+            <Avatar name={user?.name ?? '?'} color={(user as { avatarColor?: string })?.avatarColor} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-ink">{user?.name}</div>
+              <div className="truncate text-[11px] text-ink-subtle">{user?.email}</div>
+            </div>
+          </button>
           <button
             onClick={() => {
               void logout().then(() => navigate('/login'));
@@ -165,6 +177,8 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
           </button>
         </div>
       </div>
+
+      <ProfileDialog open={profileOpen} onClose={() => setProfileOpen(false)} />
     </aside>
   );
 }
@@ -336,7 +350,7 @@ function BrandMark() {
     <img
       src="/logo.png"
       alt="tracker"
-      className="h-9 w-9 shrink-0 object-contain"
+      className="h-11 w-11 shrink-0 object-contain"
     />
   );
 }

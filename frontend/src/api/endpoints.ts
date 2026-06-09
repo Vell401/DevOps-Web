@@ -30,6 +30,11 @@ export const authApi = {
     ),
   logout: (refreshToken: string) => api.post('/auth/logout', { refreshToken }),
   me: () => api.get<User>('/auth/me'),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.patch<{ accessToken: string; refreshToken: string }>(
+      '/auth/me/password',
+      { currentPassword, newPassword },
+    ),
 };
 
 export const projectsApi = {

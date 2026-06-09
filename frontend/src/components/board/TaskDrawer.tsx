@@ -107,6 +107,16 @@ export function TaskDrawer({
     }
   }, [taskId]);
 
+  // Lightweight refetch of just the task (e.g. after a subtask add/toggle) so
+  // the drawer's subtasks list updates without re-pulling comments/files. The
+  // PATCH response intentionally omits the subtasks array, so a no-op patch
+  // would not surface a newly created subtask — we re-GET the task instead.
+  const reloadTask = useCallback(async () => {
+    if (!taskId) return;
+    const t = await tasksApi.get(taskId);
+    setTask(t.data);
+  }, [taskId]);
+
   useEffect(() => {
     if (taskId) {
       setTab('overview');
@@ -256,6 +266,10 @@ export function TaskDrawer({
                 canEdit={canEdit}
                 onPatch={patch}
                 onLabelsChanged={onLabelsChanged}
+                onSubtasksChanged={async () => {
+                  await reloadTask();
+                  onChanged();
+                }}
               />
             )}
             {tab === 'comments' && (
@@ -380,6 +394,7 @@ function OverviewTab({
   canEdit,
   onPatch,
   onLabelsChanged,
+  onSubtasksChanged,
 }: {
   task: Task;
   users: UserLite[];
@@ -387,6 +402,7 @@ function OverviewTab({
   canEdit: boolean;
   onPatch: (body: TaskBody) => void;
   onLabelsChanged: () => void;
+  onSubtasksChanged: () => void;
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
@@ -599,7 +615,7 @@ function OverviewTab({
         task={task}
         users={users}
         canEdit={canEdit}
-        onChanged={() => onPatch({})}
+        onChanged={onSubtasksChanged}
       />
     </div>
   );
@@ -1008,11 +1024,36 @@ function CommentsTab({
 
   return (
     <div className="space-y-3">
+      <form onSubmit={onSubmit} className="rounded-lg border border-line bg-surface p-2">
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Write a comment… (Cmd/Ctrl+Enter to send)"
+          rows={3}
+          className="w-full resize-none bg-transparent px-2 py-1 text-sm text-ink placeholder:text-ink-subtle focus:outline-none"
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              void onSubmit(e as unknown as FormEvent);
+            }
+          }}
+        />
+        <div className="flex items-center justify-between border-t border-line pt-2">
+          <span className="text-[11px] text-ink-subtle">
+            Markdown coming soon · Cmd/Ctrl + Enter to send
+          </span>
+          <button type="submit" className="btn-primary h-7 px-2 text-xs" disabled={busy || !body.trim()}>
+            {busy ? <Spinner className="border-paper border-t-paper/40" /> : 'Comment'}
+          </button>
+        </div>
+      </form>
       {comments.length === 0 && (
         <p className="text-xs text-ink-subtle">No comments yet.</p>
       )}
+      {/* Newest first: most recent comments sit directly under the input box. */}
       <ul className="space-y-2.5">
-        {comments.map((c) => {
+        {[...comments]
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          .map((c) => {
           // Author can always delete their own; project owner can moderate any.
           const canDelete =
             (currentUserId !== undefined && c.authorId === currentUserId) ||
@@ -1056,28 +1097,6 @@ function CommentsTab({
           );
         })}
       </ul>
-      <form onSubmit={onSubmit} className="rounded-lg border border-line bg-surface p-2">
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Write a comment… (Cmd/Ctrl+Enter to send)"
-          rows={3}
-          className="w-full resize-none bg-transparent px-2 py-1 text-sm text-ink placeholder:text-ink-subtle focus:outline-none"
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-              void onSubmit(e as unknown as FormEvent);
-            }
-          }}
-        />
-        <div className="flex items-center justify-between border-t border-line pt-2">
-          <span className="text-[11px] text-ink-subtle">
-            Markdown coming soon · Cmd/Ctrl + Enter to send
-          </span>
-          <button type="submit" className="btn-primary h-7 px-2 text-xs" disabled={busy || !body.trim()}>
-            {busy ? <Spinner className="border-paper border-t-paper/40" /> : 'Comment'}
-          </button>
-        </div>
-      </form>
     </div>
   );
 }
