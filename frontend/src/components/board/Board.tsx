@@ -58,7 +58,10 @@ export function Board({ tasks, projectKey, onOpen, onMove, onQuickAdd }: Props) 
               setDragging(null);
             }}
             className={cn(
-              'flex h-full w-72 shrink-0 flex-col rounded-lg border border-line bg-paper/60 transition',
+              // Flex columns: grow to fill wide screens (no dead space on 2K),
+              // shrink down to min-w so all six fit on 1080p without a scroll.
+              // overflow-x-auto on the parent is the safety net below that floor.
+              'flex h-full min-w-[15rem] flex-1 flex-col rounded-lg border border-line bg-paper/60 transition',
               isOver && 'border-ink-muted bg-surface-sunken',
             )}
           >
