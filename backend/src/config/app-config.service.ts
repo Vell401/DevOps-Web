@@ -69,6 +69,24 @@ export class AppConfigService {
     return parseInt(this.config.get<string>('METRICS_CACHE_TTL_MS', '30000'), 10);
   }
 
+  // --- Build provenance (shown in the admin "Build info" panel) ---
+
+  get appVersion(): string {
+    return (
+      this.config.get<string>('APP_VERSION') ??
+      process.env.npm_package_version ??
+      'dev'
+    );
+  }
+
+  get gitSha(): string {
+    return this.config.get<string>('GIT_SHA', 'unknown');
+  }
+
+  get buildTime(): string {
+    return this.config.get<string>('BUILD_TIME', 'unknown');
+  }
+
   // --- Object storage (S3 / MinIO) ---
 
   get s3Endpoint(): string {

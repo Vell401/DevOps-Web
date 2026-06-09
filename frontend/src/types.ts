@@ -65,11 +65,25 @@ export interface AdminMetrics {
   slowQueries: { model: string; action: string; durationMs: number; at: string }[];
   slowQueryThresholdMs: number;
   rateLimit: { total: number; byRoute: { route: string; count: number }[] };
+  http: {
+    total: number;
+    byClass: Record<string, number>;
+    byMethod: { method: string; count: number }[];
+    avgMs: number;
+    perMinute: { minute: string; count: number }[];
+  };
   process: {
     uptimeSec: number;
     rssMb: number;
     heapUsedMb: number;
     nodeVersion: string;
+  };
+  build: {
+    version: string;
+    gitSha: string;
+    buildTime: string;
+    nodeEnv: string;
+    startedAt: string;
   };
   derivedAt: string;
 }

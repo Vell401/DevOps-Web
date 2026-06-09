@@ -213,11 +213,20 @@ export class AdminService {
       slowQueries: this.metricsStore.recentSlowQueries(),
       slowQueryThresholdMs: this.cfg.slowQueryMs,
       rateLimit: this.metricsStore.rateLimitSnapshot(),
+      http: this.metricsStore.httpSnapshot(),
       process: {
         uptimeSec: Math.floor(process.uptime()),
         rssMb: Math.round(process.memoryUsage().rss / 1048576),
         heapUsedMb: Math.round(process.memoryUsage().heapUsed / 1048576),
         nodeVersion: process.version,
+      },
+      build: {
+        version: this.cfg.appVersion,
+        gitSha: this.cfg.gitSha,
+        buildTime: this.cfg.buildTime,
+        nodeEnv: this.cfg.nodeEnv,
+        // Process start derived from uptime — no extra state to track.
+        startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
       },
       // When the cached DB figures above were last refreshed, so the UI can
       // show "as of …" rather than implying they're real-time.

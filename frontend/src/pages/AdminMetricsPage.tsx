@@ -103,6 +103,46 @@ export function AdminMetricsPage() {
             </section>
 
             <section className="mb-8">
+              <SectionTitle>API requests</SectionTitle>
+              <div className="rounded-lg border border-line bg-surface p-4 shadow-card">
+                <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+                  <div>
+                    <div className="font-display text-2xl font-semibold text-ink">
+                      {metrics.http.total}
+                    </div>
+                    <div className="text-[11px] uppercase tracking-wide text-ink-subtle">
+                      total · {metrics.http.avgMs}ms avg
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(['2xx', '3xx', '4xx', '5xx'] as const).map((c) => (
+                      <span
+                        key={c}
+                        className="chip inline-flex items-center gap-1 bg-chip-gray text-ink-muted"
+                      >
+                        <span
+                          className="h-1.5 w-1.5 rounded-full"
+                          style={{ background: STATUS_DOT[c] }}
+                        />
+                        {c} · {metrics.http.byClass[c] ?? 0}
+                      </span>
+                    ))}
+                  </div>
+                  {metrics.http.byMethod.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
+                      {metrics.http.byMethod.map((m) => (
+                        <span key={m.method} className="font-mono">
+                          {m.method} {m.count}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <RequestChart data={metrics.http.perMinute} />
+              </div>
+            </section>
+
+            <section className="mb-8">
               <SectionTitle>Process</SectionTitle>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <StatCard
@@ -115,6 +155,24 @@ export function AdminMetricsPage() {
                   value={`${metrics.process.heapUsedMb} MB`}
                 />
                 <StatCard label="Node" value={metrics.process.nodeVersion} />
+              </div>
+            </section>
+
+            <section className="mb-8">
+              <SectionTitle>Build info</SectionTitle>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                <StatCard label="Version" value={metrics.build.version} />
+                <StatCard label="Git SHA" value={metrics.build.gitSha} />
+                <StatCard label="Environment" value={metrics.build.nodeEnv} />
+                <StatCard
+                  label="Built"
+                  value={
+                    metrics.build.buildTime === 'unknown'
+                      ? '—'
+                      : timeAgo(metrics.build.buildTime)
+                  }
+                />
+                <StatCard label="Started" value={timeAgo(metrics.build.startedAt)} />
               </div>
             </section>
 
@@ -190,6 +248,39 @@ function MetricPanel({
           {children}
         </ul>
       )}
+    </div>
+  );
+}
+
+const STATUS_DOT: Record<string, string> = {
+  '2xx': '#2FA968',
+  '3xx': '#6B7280',
+  '4xx': '#C9852B',
+  '5xx': '#C0392B',
+};
+
+function RequestChart({ data }: { data: { minute: string; count: number }[] }) {
+  const max = Math.max(1, ...data.map((d) => d.count));
+  const total = data.reduce((a, b) => a + b.count, 0);
+  return (
+    <div>
+      <div className="flex h-16 items-end gap-0.5">
+        {data.map((d) => (
+          <div
+            key={d.minute}
+            title={`${new Date(d.minute).toLocaleTimeString()} · ${d.count} req`}
+            className="flex-1 rounded-t-sm bg-blurple/70 transition hover:bg-blurple"
+            style={{ height: `${Math.max(2, (d.count / max) * 100)}%` }}
+          />
+        ))}
+      </div>
+      <div className="mt-1 flex justify-between text-[11px] text-ink-subtle">
+        <span>30 min ago</span>
+        <span>
+          {total} reqs · peak {max}/min
+        </span>
+        <span>now</span>
+      </div>
     </div>
   );
 }
