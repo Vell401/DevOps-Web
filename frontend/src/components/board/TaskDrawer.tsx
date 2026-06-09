@@ -21,6 +21,7 @@ import { Avatar, AvatarStack } from '../../ui/Avatar';
 import { LabelChip } from '../../ui/LabelChip';
 import { Icon } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
+import { AutoTextarea } from '../../ui/AutoTextarea';
 import { Popover, PopoverItem } from '../../ui/Popover';
 import { StatusBadge } from '../../ui/StatusBadge';
 import { PriorityFlag } from '../../ui/PriorityFlag';
@@ -34,6 +35,7 @@ import {
   STATUS_ORDER,
 } from '../../lib/meta';
 import { timeAgo, toIsoDateInput } from '../../lib/format';
+import { apiError } from '../../lib/apiError';
 import { cn } from '../../lib/cn';
 import type { LabelColor } from '../../types';
 
@@ -195,8 +197,8 @@ export function TaskDrawer({
         const a = await tasksApi.activity(taskId);
         setActivities(a.data);
         onChanged();
-      } catch {
-        toast.push('Could not update task', 'error');
+      } catch (err) {
+        toast.push(apiError(err, 'Could not update task'), 'error');
       }
     },
     [taskId, onChanged, toast],
@@ -210,8 +212,8 @@ export function TaskDrawer({
       toast.push('Task deleted', 'success');
       onChanged();
       onClose();
-    } catch {
-      toast.push('Could not delete task', 'error');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not delete task'), 'error');
     }
   };
 
@@ -601,13 +603,13 @@ function OverviewTab({
 
       <section>
         <SectionTitle>Description</SectionTitle>
-        <textarea
+        <AutoTextarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           onBlur={commitDescription}
           readOnly={!canEdit}
           placeholder={canEdit ? 'Add more context about this task…' : 'No description'}
-          className="input min-h-[120px] resize-y bg-surface text-sm leading-relaxed"
+          className="input min-h-[120px] max-h-[55vh] bg-surface text-sm leading-relaxed"
         />
       </section>
 
@@ -835,8 +837,8 @@ function SubtasksSection({
       setAddOpen(false);
       onChanged();
       toast.push('Subtask added', 'success');
-    } catch {
-      toast.push('Could not add subtask', 'error');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not add subtask'), 'error');
     } finally {
       setBusy(false);
     }
@@ -1015,8 +1017,9 @@ function CommentsTab({
       await commentsApi.create(taskId, text);
       setBody('');
       onAdded();
-    } catch {
-      toast.push('Could not post comment', 'error');
+      toast.push('Comment posted', 'success');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not post comment'), 'error');
     } finally {
       setBusy(false);
     }
