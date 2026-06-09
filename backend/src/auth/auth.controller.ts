@@ -5,10 +5,12 @@ import {
   HttpCode,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import type { Request } from 'express';
 
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -38,8 +40,12 @@ export class AuthController {
   @Post('login')
   @Throttle(AUTH_THROTTLE)
   @HttpCode(200)
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto);
+  login(@Body() dto: LoginDto, @Req() req: Request) {
+    // req.ip is the real client IP thanks to `trust proxy` (set in main.ts).
+    return this.auth.login(dto, {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
   }
 
   @Post('refresh')

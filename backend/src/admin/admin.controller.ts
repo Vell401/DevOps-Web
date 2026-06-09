@@ -32,9 +32,19 @@ export class AdminController {
     return this.admin.stats();
   }
 
+  @Get('metrics')
+  metrics() {
+    return this.admin.metrics();
+  }
+
   @Get('users')
   listUsers() {
     return this.admin.listUsers();
+  }
+
+  @Get('users/:id/logins')
+  userLogins(@Param('id', ParseUUIDPipe) id: string) {
+    return this.admin.userLogins(id);
   }
 
   @Patch('users/:id')

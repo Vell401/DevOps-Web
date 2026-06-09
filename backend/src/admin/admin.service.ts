@@ -5,11 +5,17 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { AppConfigService } from '../config/app-config.service';
+import { MetricsService } from '../metrics/metrics.service';
 import { AdminUpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly metricsStore: MetricsService,
+    private readonly cfg: AppConfigService,
+  ) {}
 
   async listUsers() {
     const users = await this.prisma.user.findMany({
@@ -20,6 +26,8 @@ export class AdminService {
         name: true,
         avatarColor: true,
         isAdmin: true,
+        blocked: true,
+        lastLoginAt: true,
         createdAt: true,
         updatedAt: true,
         _count: {
@@ -69,14 +77,21 @@ export class AdminService {
       }
     }
 
+    // Don't let an admin lock themselves out.
+    if (dto.blocked === true && target.id === actingUserId) {
+      throw new BadRequestException('Cannot block your own account');
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const data: {
         name?: string;
         isAdmin?: boolean;
+        blocked?: boolean;
         passwordHash?: string;
       } = {};
       if (dto.name !== undefined) data.name = dto.name.trim();
       if (dto.isAdmin !== undefined) data.isAdmin = dto.isAdmin;
+      if (dto.blocked !== undefined) data.blocked = dto.blocked;
       if (dto.newPassword) {
         data.passwordHash = await bcrypt.hash(dto.newPassword, 12);
         // Revoke all refresh tokens — the user must log in again.
@@ -92,6 +107,8 @@ export class AdminService {
           name: true,
           avatarColor: true,
           isAdmin: true,
+          blocked: true,
+          lastLoginAt: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -162,5 +179,58 @@ export class AdminService {
       })),
       recentSignups,
     };
+  }
+
+  /**
+   * Operational metrics for the admin panel: live realtime connections, active
+   * sessions, object-storage usage (derived cheaply from attachment rows rather
+   * than scanning the bucket), and the in-memory slow-query / rate-limit feeds.
+   */
+  async metrics() {
+    const [storage, sessions] = await Promise.all([
+      this.prisma.attachment.aggregate({
+        _sum: { size: true },
+        _count: { _all: true },
+      }),
+      this.prisma.refreshToken.count({
+        where: { expiresAt: { gt: new Date() } },
+      }),
+    ]);
+
+    const realtime = this.metricsStore.realtime();
+
+    return {
+      realtime,
+      sessions,
+      storage: {
+        totalBytes: storage._sum.size ?? 0,
+        fileCount: storage._count._all,
+      },
+      slowQueries: this.metricsStore.recentSlowQueries(),
+      slowQueryThresholdMs: this.cfg.slowQueryMs,
+      rateLimit: this.metricsStore.rateLimitSnapshot(),
+    };
+  }
+
+  /** Recent authentication attempts for one user (newest first). */
+  async userLogins(userId: string, limit = 25) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    return this.prisma.loginEvent.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        success: true,
+        ip: true,
+        userAgent: true,
+        createdAt: true,
+      },
+    });
   }
 }

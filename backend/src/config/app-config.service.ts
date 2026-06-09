@@ -58,6 +58,11 @@ export class AppConfigService {
     return parseInt(this.config.get<string>('THROTTLE_LIMIT', '120'), 10);
   }
 
+  /** Queries slower than this (ms) are recorded for the admin metrics panel. */
+  get slowQueryMs(): number {
+    return parseInt(this.config.get<string>('SLOW_QUERY_MS', '300'), 10);
+  }
+
   // --- Object storage (S3 / MinIO) ---
 
   get s3Endpoint(): string {

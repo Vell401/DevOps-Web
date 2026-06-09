@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { adminApi, type AdminUpdateUserBody } from '../api/endpoints';
-import type { AdminStats, AdminUser } from '../types';
+import type { AdminMetrics, AdminStats, AdminUser, LoginEvent } from '../types';
 import { Topbar } from '../components/Topbar';
 import { Avatar } from '../ui/Avatar';
 import { Icon } from '../ui/Icon';
@@ -17,15 +17,22 @@ export function AdminPage() {
   const toast = useToast();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
   const [resetFor, setResetFor] = useState<AdminUser | null>(null);
+  const [loginsFor, setLoginsFor] = useState<AdminUser | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, u] = await Promise.all([adminApi.stats(), adminApi.listUsers()]);
+      const [s, m, u] = await Promise.all([
+        adminApi.stats(),
+        adminApi.metrics(),
+        adminApi.listUsers(),
+      ]);
       setStats(s.data);
+      setMetrics(m.data);
       setUsers(u.data);
     } catch {
       toast.push('Failed to load admin data', 'error');
@@ -69,6 +76,18 @@ export function AdminPage() {
         'Could not delete user';
       toast.push(msg, 'error');
     }
+  };
+
+  const toggleBlock = async (u: AdminUser) => {
+    if (
+      !u.blocked &&
+      !confirm(
+        `Block ${u.email}? They won't be able to log in until you unblock them. Any active session keeps working until it expires.`,
+      )
+    ) {
+      return;
+    }
+    await patch(u.id, { blocked: !u.blocked });
   };
 
   const filtered = filter
@@ -141,10 +160,12 @@ export function AdminPage() {
           </section>
         )}
 
+        {metrics && <MetricsSection metrics={metrics} />}
+
         <section>
           <SectionTitle>Users ({filtered.length})</SectionTitle>
-          <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-card">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-lg border border-line bg-surface shadow-card scrollbar-thin">
+            <table className="w-full min-w-[860px] text-sm">
               <thead className="border-b border-line bg-paper/60 text-xs uppercase tracking-wide text-ink-subtle">
                 <tr>
                   <Th>User</Th>
@@ -152,6 +173,7 @@ export function AdminPage() {
                   <Th>Projects</Th>
                   <Th>Tasks</Th>
                   <Th>Comments</Th>
+                  <Th>Last login</Th>
                   <Th>Joined</Th>
                   <Th className="text-right">Actions</Th>
                 </tr>
@@ -169,6 +191,9 @@ export function AdminPage() {
                               <span className="font-medium text-ink">{u.name}</span>
                               {isMe && (
                                 <span className="chip bg-chip-gray text-ink-muted">you</span>
+                              )}
+                              {u.blocked && (
+                                <span className="chip bg-chip-red text-[#883128]">blocked</span>
                               )}
                             </div>
                             <div className="text-xs text-ink-subtle">{u.email}</div>
@@ -199,10 +224,43 @@ export function AdminPage() {
                         <span className="font-mono text-xs">{u.stats.comments}</span>
                       </Td>
                       <Td>
+                        <span className="text-xs text-ink-muted">
+                          {u.lastLoginAt ? timeAgo(u.lastLoginAt) : 'never'}
+                        </span>
+                      </Td>
+                      <Td>
                         <span className="text-xs text-ink-muted">{timeAgo(u.createdAt)}</span>
                       </Td>
                       <Td className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => setLoginsFor(u)}
+                            className="btn-ghost h-7 px-2 text-xs"
+                            title="View login history"
+                          >
+                            Logins
+                          </button>
+                          <button
+                            onClick={() => void toggleBlock(u)}
+                            disabled={isMe}
+                            className={cn(
+                              'btn-ghost h-7 px-2 text-xs',
+                              isMe
+                                ? 'opacity-30'
+                                : u.blocked
+                                  ? 'text-[#1B6A48] hover:bg-chip-green'
+                                  : 'text-[#883128] hover:bg-chip-red/40',
+                            )}
+                            title={
+                              isMe
+                                ? "Can't block yourself"
+                                : u.blocked
+                                  ? 'Unblock user'
+                                  : 'Block user'
+                            }
+                          >
+                            {u.blocked ? 'Unblock' : 'Block'}
+                          </button>
                           <button
                             onClick={() => setResetFor(u)}
                             className="btn-ghost h-7 px-2 text-xs"
@@ -260,6 +318,8 @@ export function AdminPage() {
           setResetFor(null);
         }}
       />
+
+      <LoginHistoryDialog user={loginsFor} onClose={() => setLoginsFor(null)} />
     </>
   );
 }
@@ -278,7 +338,7 @@ function StatCard({
   sub,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   sub?: string;
 }) {
   return (
@@ -288,6 +348,118 @@ function StatCard({
       {sub && <div className="text-xs text-ink-muted">{sub}</div>}
     </div>
   );
+}
+
+function MetricsSection({ metrics }: { metrics: AdminMetrics }) {
+  return (
+    <section className="mb-8">
+      <SectionTitle>System metrics</SectionTitle>
+      <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <StatCard
+          label="WS connections"
+          value={metrics.realtime.connections}
+          sub="live sockets"
+        />
+        <StatCard
+          label="Online users"
+          value={metrics.realtime.onlineUsers}
+          sub="distinct, realtime"
+        />
+        <StatCard
+          label="Active sessions"
+          value={metrics.sessions}
+          sub="valid refresh tokens"
+        />
+        <StatCard
+          label="Storage used"
+          value={formatBytes(metrics.storage.totalBytes)}
+          sub={`${metrics.storage.fileCount} file${metrics.storage.fileCount === 1 ? '' : 's'}`}
+        />
+        <StatCard
+          label="Rate-limit hits"
+          value={metrics.rateLimit.total}
+          sub="since restart"
+        />
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <MetricPanel
+          title="Slow queries"
+          aside={`> ${metrics.slowQueryThresholdMs}ms · last ${metrics.slowQueries.length}`}
+          empty={metrics.slowQueries.length === 0 ? 'No slow queries recorded.' : null}
+        >
+          {metrics.slowQueries.map((q, i) => (
+            <li
+              key={`${q.at}-${i}`}
+              className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs"
+            >
+              <span className="truncate font-mono text-ink-muted">
+                {q.model}.{q.action}
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span className="text-ink-subtle">{timeAgo(q.at)}</span>
+                <span className="font-mono text-[#883128]">{q.durationMs}ms</span>
+              </span>
+            </li>
+          ))}
+        </MetricPanel>
+        <MetricPanel
+          title="Rate-limit hits by route"
+          aside={`${metrics.rateLimit.total} total`}
+          empty={
+            metrics.rateLimit.byRoute.length === 0
+              ? 'No requests have been throttled.'
+              : null
+          }
+        >
+          {metrics.rateLimit.byRoute.map((r) => (
+            <li
+              key={r.route}
+              className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs"
+            >
+              <span className="truncate font-mono text-ink-muted">{r.route}</span>
+              <span className="shrink-0 font-mono text-ink">{r.count}</span>
+            </li>
+          ))}
+        </MetricPanel>
+      </div>
+    </section>
+  );
+}
+
+function MetricPanel({
+  title,
+  aside,
+  empty,
+  children,
+}: {
+  title: string;
+  aside: string;
+  empty: string | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-line bg-surface shadow-card">
+      <div className="flex items-center justify-between border-b border-line px-3 py-2">
+        <span className="text-xs font-medium text-ink">{title}</span>
+        <span className="text-[11px] text-ink-subtle">{aside}</span>
+      </div>
+      {empty ? (
+        <p className="px-3 py-4 text-xs text-ink-subtle">{empty}</p>
+      ) : (
+        <ul className="max-h-56 divide-y divide-line/60 overflow-y-auto scrollbar-thin">
+          {children}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const val = bytes / 1024 ** i;
+  return `${val >= 100 || i === 0 ? Math.round(val) : val.toFixed(1)} ${units[i]}`;
 }
 
 function Th({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -366,6 +538,82 @@ function ResetPasswordDialog({
           </button>
         </div>
       </form>
+    </Dialog>
+  );
+}
+
+function LoginHistoryDialog({
+  user,
+  onClose,
+}: {
+  user: AdminUser | null;
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const [events, setEvents] = useState<LoginEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    setLoading(true);
+    setEvents([]);
+    adminApi
+      .userLogins(user.id)
+      .then((r) => alive && setEvents(r.data))
+      .catch(() => alive && toast.push('Could not load login history', 'error'))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [user, toast]);
+
+  if (!user) return null;
+  return (
+    <Dialog
+      open={user !== null}
+      onClose={onClose}
+      title="Login history"
+      description={`Most recent sign-in attempts for ${user.email}.`}
+      width={560}
+    >
+      {loading ? (
+        <div className="flex items-center gap-2 py-6 text-sm text-ink-muted">
+          <Spinner /> Loading…
+        </div>
+      ) : events.length === 0 ? (
+        <p className="py-6 text-sm text-ink-subtle">No login attempts recorded yet.</p>
+      ) : (
+        <ul className="max-h-[55vh] space-y-1.5 overflow-y-auto scrollbar-thin">
+          {events.map((e) => (
+            <li key={e.id} className="rounded-md border border-line bg-surface px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <span
+                  className={cn(
+                    'chip',
+                    e.success
+                      ? 'bg-chip-green text-[#1B6A48]'
+                      : 'bg-chip-red text-[#883128]',
+                  )}
+                >
+                  {e.success ? 'success' : 'failed'}
+                </span>
+                <span className="text-xs text-ink-subtle">{timeAgo(e.createdAt)}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-ink-muted">
+                <span>
+                  IP: <span className="font-mono text-ink">{e.ip ?? '—'}</span>
+                </span>
+                {e.userAgent && (
+                  <span className="min-w-0 break-all">
+                    UA: <span className="text-ink">{e.userAgent}</span>
+                  </span>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </Dialog>
   );
 }
