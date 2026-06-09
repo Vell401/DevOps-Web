@@ -26,6 +26,20 @@ import { CurrentUser, AuthenticatedUser } from '../auth/decorators/current-user.
 // maps multer's LIMIT_FILE_SIZE to a 413 PayloadTooLargeException automatically.
 const MAX_UPLOAD_BYTES = parseInt(process.env.MAX_UPLOAD_BYTES ?? '26214400', 10);
 
+// Only these raster types are safe to serve `inline`. SVG is deliberately
+// excluded: it can carry <script>, and serving it inline from the app origin
+// (the SPA and API share one origin, and the global CSP is disabled) would be a
+// stored-XSS vector — an attacker could steal the JWT from localStorage. Any
+// other type (SVG, HTML, PDF, …) is forced to download instead of rendering.
+const INLINE_SAFE_MIME = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/avif',
+  'image/bmp',
+]);
+
 @ApiTags('attachments')
 @ApiBearerAuth()
 @UseGuards(JwtAccessGuard)
@@ -70,12 +84,17 @@ export class AttachmentsController {
       id,
       user.userId,
     );
-    const isImage = attachment.mimeType.startsWith('image/');
+    const inline = INLINE_SAFE_MIME.has(attachment.mimeType.toLowerCase());
     res.set({
       'Content-Type': attachment.mimeType,
-      'Content-Disposition': `${isImage ? 'inline' : 'attachment'}; filename="${encodeURIComponent(
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(
         attachment.filename,
       )}"`,
+      // Defence in depth: the app's global CSP is disabled, so lock down the
+      // attachment response itself. `sandbox` neutralises any active content if
+      // a file is ever opened directly; nosniff stops MIME-type guessing.
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'X-Content-Type-Options': 'nosniff',
     });
     return new StreamableFile(stream);
   }
