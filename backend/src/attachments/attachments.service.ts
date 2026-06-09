@@ -109,5 +109,5 @@ export class AttachmentsService {
 /** Strip any path, keep a safe basename for display/download. */
 function sanitizeName(name: string): string {
   const base = (name || 'file').split(/[\\/]/).pop() ?? 'file';
-  return base.replace(/[^\w.\-]+/g, '_').slice(0, 120) || 'file';
+  return base.replace(/[^\w.-]+/g, '_').slice(0, 120) || 'file';
 }
