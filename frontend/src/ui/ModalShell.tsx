@@ -13,10 +13,10 @@ interface Props {
 /**
  * Centered modal shell: a wide panel in the middle of the screen with a dimmed
  * backdrop. Used for the task view (previously a right-side drawer). Caps at
- * 88vh tall — the child is expected to be a `flex flex-col` whose scroll region
+ * 90vh tall — the child is expected to be a `flex flex-col` whose scroll region
  * uses `min-h-0 flex-1 overflow-y-auto`.
  */
-export function ModalShell({ open, onClose, children, width = 920 }: Props) {
+export function ModalShell({ open, onClose, children, width = 1100 }: Props) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
@@ -45,7 +45,7 @@ export function ModalShell({ open, onClose, children, width = 920 }: Props) {
         aria-modal="true"
         style={{ width, maxWidth: '94vw' }}
         className={cn(
-          'relative flex max-h-[88vh] w-full flex-col overflow-hidden rounded-xl',
+          'relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-xl',
           'bg-surface shadow-drawer ring-1 ring-line animate-[modalin_180ms_ease-out]',
         )}
       >

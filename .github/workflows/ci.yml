@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   backend:
-    name: backend (test + build)
+    name: backend (lint + test + build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -63,13 +63,14 @@ jobs:
           cache-dependency-path: backend/package-lock.json
 
       - run: npm ci
+      - run: npm run lint
       - run: npx prisma generate
       - run: npx prisma migrate deploy
       - run: npm test -- --runInBand
       - run: npm run build
 
   frontend:
-    name: frontend (test + build)
+    name: frontend (lint + test + build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -85,5 +86,6 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - run: npm ci
+      - run: npm run lint
       - run: npm test
       - run: npm run build

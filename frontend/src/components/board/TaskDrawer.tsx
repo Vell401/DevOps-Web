@@ -206,7 +206,7 @@ export function TaskDrawer({
   };
 
   return (
-    <ModalShell open={taskId !== null} onClose={onClose} width={920}>
+    <ModalShell open={taskId !== null} onClose={onClose} width={1100}>
       {loading && !task && (
         <div className="flex items-center justify-center px-6 py-16 text-sm text-ink-muted">
           <Spinner /> <span className="ml-2">Loading task…</span>
