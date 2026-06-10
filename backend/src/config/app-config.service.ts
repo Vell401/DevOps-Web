@@ -58,6 +58,39 @@ export class AppConfigService {
     return parseInt(this.config.get<string>('THROTTLE_LIMIT', '120'), 10);
   }
 
+  /** Queries slower than this (ms) are recorded for the admin metrics panel. */
+  get slowQueryMs(): number {
+    return parseInt(this.config.get<string>('SLOW_QUERY_MS', '300'), 10);
+  }
+
+  /** TTL (ms) for cached DB-derived admin metrics, so repeated dashboard polls
+   *  never re-run the aggregate queries more than once per window. */
+  get metricsCacheTtlMs(): number {
+    return parseInt(this.config.get<string>('METRICS_CACHE_TTL_MS', '30000'), 10);
+  }
+
+  // --- Build provenance (shown in the admin "Build info" panel) ---
+  //
+  // These come from build-args baked into the image. A *defined but empty* env
+  // var (e.g. a CI expression that resolved to nothing) would otherwise slip
+  // past ConfigService's default, so each getter treats blanks as missing.
+
+  get appVersion(): string {
+    return (
+      blankToUndefined(this.config.get<string>('APP_VERSION')) ??
+      blankToUndefined(process.env.npm_package_version) ??
+      'dev'
+    );
+  }
+
+  get gitSha(): string {
+    return blankToUndefined(this.config.get<string>('GIT_SHA')) ?? 'unknown';
+  }
+
+  get buildTime(): string {
+    return blankToUndefined(this.config.get<string>('BUILD_TIME')) ?? 'unknown';
+  }
+
   // --- Object storage (S3 / MinIO) ---
 
   get s3Endpoint(): string {
@@ -89,4 +122,10 @@ export class AppConfigService {
   get maxUploadBytes(): number {
     return parseInt(this.config.get<string>('MAX_UPLOAD_BYTES', '26214400'), 10);
   }
+}
+
+/** Treat `undefined`, `null` and blank/whitespace-only strings alike, so an
+ *  env var that is *defined but empty* falls through to the next fallback. */
+function blankToUndefined(value: string | undefined): string | undefined {
+  return value && value.trim() ? value : undefined;
 }

@@ -14,6 +14,7 @@ import { Server, Socket } from 'socket.io';
 
 import { AppConfigService } from '../config/app-config.service';
 import { ProjectsService } from '../projects/projects.service';
+import { MetricsService } from '../metrics/metrics.service';
 import type { JwtPayload } from '../auth/auth.service';
 
 interface AuthedSocket extends Socket {
@@ -44,11 +45,18 @@ export class RealtimeGateway
   @WebSocketServer() server!: Server;
   private readonly log = new Logger(RealtimeGateway.name);
 
+  // Live connection counters for the admin metrics panel. `connections` counts
+  // every authenticated socket (a user may have several tabs); `userConns` maps
+  // userId -> open socket count, so its size is the distinct online-user count.
+  private connections = 0;
+  private readonly userConns = new Map<string, number>();
+
   constructor(
     private readonly jwt: JwtService,
     private readonly cfg: AppConfigService,
     @Inject(forwardRef(() => ProjectsService))
     private readonly projects: ProjectsService,
+    private readonly metrics: MetricsService,
   ) {}
 
   afterInit() {
@@ -73,13 +81,36 @@ export class RealtimeGateway
       // Join a personal room so the backend can push user-scoped events
       // (e.g. "projects-changed" when assignment makes a new project visible).
       await client.join(userRoom(payload.sub));
+      this.trackConnect(payload.sub);
     } catch {
       client.disconnect();
     }
   }
 
-  handleDisconnect(_client: AuthedSocket) {
-    // Rooms are cleaned up automatically by socket.io.
+  handleDisconnect(client: AuthedSocket) {
+    // Rooms are cleaned up automatically by socket.io; we only adjust counters.
+    if (client.data.userId) this.trackDisconnect(client.data.userId);
+  }
+
+  private trackConnect(userId: string) {
+    this.connections += 1;
+    this.userConns.set(userId, (this.userConns.get(userId) ?? 0) + 1);
+    this.publishStats();
+  }
+
+  private trackDisconnect(userId: string) {
+    this.connections = Math.max(0, this.connections - 1);
+    const remaining = (this.userConns.get(userId) ?? 0) - 1;
+    if (remaining <= 0) this.userConns.delete(userId);
+    else this.userConns.set(userId, remaining);
+    this.publishStats();
+  }
+
+  private publishStats() {
+    this.metrics.setRealtime({
+      connections: this.connections,
+      onlineUsers: this.userConns.size,
+    });
   }
 
   @SubscribeMessage('subscribe-project')

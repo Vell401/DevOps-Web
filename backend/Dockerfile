@@ -34,6 +34,15 @@ COPY --from=build --chown=app:app /app/package.json ./package.json
 # the seed's top-level await with ERR_UNKNOWN_FILE_EXTENSION for ".ts".
 COPY --from=build --chown=app:app /app/tsconfig.json ./tsconfig.json
 
+# Build provenance surfaced in the admin "Build info" panel. Supplied at build
+# time, e.g. --build-arg GIT_SHA=$(git rev-parse --short HEAD) --build-arg BUILD_TIME=$(date -u +%FT%TZ)
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=unknown
+ARG APP_VERSION=dev
+ENV GIT_SHA=$GIT_SHA \
+    BUILD_TIME=$BUILD_TIME \
+    APP_VERSION=$APP_VERSION
+
 USER app
 EXPOSE 3000
 

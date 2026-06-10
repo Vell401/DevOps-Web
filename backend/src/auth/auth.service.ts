@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -20,6 +21,12 @@ export interface JwtPayload {
 export interface TokenPair {
   accessToken: string;
   refreshToken: string;
+}
+
+/** Request context recorded alongside a login attempt. */
+export interface LoginMeta {
+  ip?: string;
+  userAgent?: string;
 }
 
 @Injectable()
@@ -43,15 +50,57 @@ export class AuthService {
     return { ...tokens, userId: user.id };
   }
 
-  async login(dto: LoginDto): Promise<TokenPair & { userId: string }> {
+  async login(
+    dto: LoginDto,
+    meta: LoginMeta = {},
+  ): Promise<TokenPair & { userId: string }> {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    // Unknown email: nothing to attribute an audit record to, so just reject.
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!ok) throw new UnauthorizedException('Invalid credentials');
+    if (!ok) {
+      await this.recordLogin(user.id, false, meta);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Login-block: a blocked user cannot obtain new tokens. Any access token
+    // they already hold keeps working until it expires (~15m) by design.
+    if (user.blocked) {
+      await this.recordLogin(user.id, false, meta);
+      throw new ForbiddenException(
+        'Your account is blocked. Contact an administrator.',
+      );
+    }
+
+    await Promise.all([
+      this.recordLogin(user.id, true, meta),
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      }),
+    ]);
 
     const tokens = await this.issueTokens(user.id, user.email);
     return { ...tokens, userId: user.id };
+  }
+
+  /** Best-effort audit record of a login attempt; never blocks auth on failure. */
+  private async recordLogin(
+    userId: string,
+    success: boolean,
+    meta: LoginMeta,
+  ): Promise<void> {
+    await this.prisma.loginEvent
+      .create({
+        data: {
+          userId,
+          success,
+          ip: meta.ip?.slice(0, 45) ?? null,
+          userAgent: meta.userAgent?.slice(0, 300) ?? null,
+        },
+      })
+      .catch(() => undefined);
   }
 
   async refresh(refreshToken: string): Promise<TokenPair> {

@@ -60,6 +60,8 @@ model User {
   name           String
   avatarColor    String         @default("gray")
   isAdmin        Boolean        @default(false)
+  blocked        Boolean        @default(false)
+  lastLoginAt    DateTime?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
@@ -70,6 +72,7 @@ model User {
   activities     Activity[]
   attachments    Attachment[]
   refreshTokens  RefreshToken[]
+  loginEvents    LoginEvent[]
 }
 
 model Project {
@@ -185,4 +188,19 @@ model RefreshToken {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+// Audit trail of authentication attempts, surfaced per-user in the admin panel.
+// Records successes and failed password / blocked attempts for known accounts.
+// Privacy: we keep the source IP and user-agent, but never any credentials.
+model LoginEvent {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  success   Boolean  @default(true)
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }

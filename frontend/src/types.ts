@@ -45,7 +45,47 @@ export interface User {
 
 export interface AdminUser extends User {
   updatedAt: string;
+  blocked: boolean;
+  lastLoginAt: string | null;
   stats: { projects: number; tasks: number; comments: number };
+}
+
+export interface LoginEvent {
+  id: string;
+  success: boolean;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: string;
+}
+
+export interface AdminMetrics {
+  realtime: { connections: number; onlineUsers: number };
+  sessions: number;
+  storage: { totalBytes: number; fileCount: number };
+  slowQueries: { model: string; action: string; durationMs: number; at: string }[];
+  slowQueryThresholdMs: number;
+  rateLimit: { total: number; byRoute: { route: string; count: number }[] };
+  http: {
+    total: number;
+    byClass: Record<string, number>;
+    byMethod: { method: string; count: number }[];
+    avgMs: number;
+    perMinute: { minute: string; count: number }[];
+  };
+  process: {
+    uptimeSec: number;
+    rssMb: number;
+    heapUsedMb: number;
+    nodeVersion: string;
+  };
+  build: {
+    version: string;
+    gitSha: string;
+    buildTime: string;
+    nodeEnv: string;
+    startedAt: string;
+  };
+  derivedAt: string;
 }
 
 export interface AdminStats {

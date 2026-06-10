@@ -3,9 +3,11 @@ import type {
   Activity,
   ActivityStats,
   ActivityType,
+  AdminMetrics,
   AdminStats,
   AdminUser,
   Attachment,
+  LoginEvent,
   Comment,
   Label,
   LabelColor,
@@ -153,12 +155,15 @@ export const activityApi = {
 export interface AdminUpdateUserBody {
   name?: string;
   isAdmin?: boolean;
+  blocked?: boolean;
   newPassword?: string;
 }
 
 export const adminApi = {
   stats: () => api.get<AdminStats>('/admin/stats'),
+  metrics: () => api.get<AdminMetrics>('/admin/metrics'),
   listUsers: () => api.get<AdminUser[]>('/admin/users'),
+  userLogins: (id: string) => api.get<LoginEvent[]>(`/admin/users/${id}/logins`),
   updateUser: (id: string, body: AdminUpdateUserBody) =>
     api.patch<AdminUser>(`/admin/users/${id}`, body),
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
