@@ -70,21 +70,25 @@ export class AppConfigService {
   }
 
   // --- Build provenance (shown in the admin "Build info" panel) ---
+  //
+  // These come from build-args baked into the image. A *defined but empty* env
+  // var (e.g. a CI expression that resolved to nothing) would otherwise slip
+  // past ConfigService's default, so each getter treats blanks as missing.
 
   get appVersion(): string {
     return (
-      this.config.get<string>('APP_VERSION') ??
-      process.env.npm_package_version ??
+      blankToUndefined(this.config.get<string>('APP_VERSION')) ??
+      blankToUndefined(process.env.npm_package_version) ??
       'dev'
     );
   }
 
   get gitSha(): string {
-    return this.config.get<string>('GIT_SHA', 'unknown');
+    return blankToUndefined(this.config.get<string>('GIT_SHA')) ?? 'unknown';
   }
 
   get buildTime(): string {
-    return this.config.get<string>('BUILD_TIME', 'unknown');
+    return blankToUndefined(this.config.get<string>('BUILD_TIME')) ?? 'unknown';
   }
 
   // --- Object storage (S3 / MinIO) ---
@@ -118,4 +122,10 @@ export class AppConfigService {
   get maxUploadBytes(): number {
     return parseInt(this.config.get<string>('MAX_UPLOAD_BYTES', '26214400'), 10);
   }
+}
+
+/** Treat `undefined`, `null` and blank/whitespace-only strings alike, so an
+ *  env var that is *defined but empty* falls through to the next fallback. */
+function blankToUndefined(value: string | undefined): string | undefined {
+  return value && value.trim() ? value : undefined;
 }
