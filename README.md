@@ -23,16 +23,17 @@ GitHub Actions runner.
 | Object storage | MinIO (S3-совместимое) — вложения к задачам |
 | Frontend | React 18 + Vite + TypeScript + TailwindCSS |
 | Auth | JWT (access + ротация refresh), bcrypt |
-| Rate limiting | `@nestjs/throttler` (in-memory store) |
+| Rate limiting | `@nestjs/throttler` + Redis-хранилище (fallback: in-memory) |
 | Тесты | Jest (backend), Vitest (frontend) |
 | Reverse proxy (prod) | nginx (`deploy/edge.conf`) |
 | CI / CD | GitHub Actions → Docker Hub → self-hosted runner |
 
-Контейнер Redis 7 присутствует в Compose и его параметры читаются конфигурацией
-бэкенда (`REDIS_HOST`, `REDIS_PORT`), однако в текущей версии кода приложение к
-Redis не обращается: rate limiting использует встроенное in-memory хранилище
-`@nestjs/throttler`. Контейнер оставлен как задел под будущее распределённое
-хранилище лимитов или кэш.
+Redis 7 используется бэкендом для трёх вещей: распределённые счётчики rate
+limiting (`@nest-lab/throttler-storage-redis`), Socket.IO Redis-адаптер
+(broadcast-события доходят до клиентов любой реплики бэкенда) и общий кэш
+производных метрик админ-панели. Redis опционален: если `REDIS_HOST` не задан
+(локальный `npm run start:dev` без Docker, unit-тесты), приложение прозрачно
+откатывается на in-process-хранилища.
 
 ---
 
@@ -218,7 +219,7 @@ npx prisma migrate dev --name <короткое-описание>
 |---|---|---|---|
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | compose | tracker | Инициализация Postgres |
 | `DATABASE_URL` | backend | (из значений выше) | Строка подключения Prisma |
-| `REDIS_HOST` / `REDIS_PORT` | backend | redis / 6379 | Параметры Redis (контейнер предусмотрен, приложением пока не используется) |
+| `REDIS_HOST` / `REDIS_PORT` | backend | redis / 6379 | Параметры Redis (rate limiting, Socket.IO адаптер, кэш метрик). Если `REDIS_HOST` не задан — fallback на in-process-хранилища |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | backend | **обязательно сменить в prod** | Ключи подписи JWT |
 | `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | backend | 15m / 7d | Время жизни токенов |
 | `THROTTLE_TTL` / `THROTTLE_LIMIT` | backend | 60 / 120 | Окно (сек) и квота rate-limit |
@@ -269,8 +270,10 @@ push в main     → prod-cd.yml (test → build → deploy на self-hosted run
 self-hosted runner'е, размещённом на целевом сервере. Такое разделение
 обусловлено публичностью репозитория: на runner попадает только шаг деплоя
 (`docker pull` + `docker compose up`), что минимизирует поверхность атаки. Образы
-публикуются в Docker Hub с тегами `sha-<short>` (неизменяемый), `dev`/`prod`
-(подвижный указатель среды) и `latest`.
+публикуются в Docker Hub с тегами `sha-<short>` (неизменяемый) и `dev`/`prod`
+(подвижный указатель среды); тег `latest` сознательно не публикуется. После
+сборки каждый образ проходит Trivy-скан: исправимые CRITICAL-уязвимости
+блокируют пайплайн.
 
 Каждый пайплайн поддерживает ручной запуск (`workflow_dispatch`) с параметром
 `image_tag` — для отката на ранее собранный образ без пересборки.

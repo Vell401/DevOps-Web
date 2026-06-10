@@ -9,9 +9,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { ActivityType } from '@prisma/client';
 
 import { ActivityService } from './activity.service';
+import { QueryActivityDto } from './dto/query-activity.dto';
+import { PageQueryDto } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
 import { JwtAccessGuard } from '../auth/guards/jwt-access.guard';
@@ -54,19 +55,21 @@ export class ActivityController {
   @Get('tasks/:taskId/activity')
   async listForTask(
     @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Query() query: PageQueryDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     await this.assertTaskAccess(taskId, user.userId);
-    return this.activity.listForTask(taskId);
+    return this.activity.listForTask(taskId, query);
   }
 
   @Get('projects/:projectId/activity')
   async listForProject(
     @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Query() query: PageQueryDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     await this.projects.getAccessible(projectId, user.userId);
-    return this.activity.listForProject(projectId);
+    return this.activity.listForProject(projectId, query);
   }
 
   @Get('projects/:projectId/activity/stats')
@@ -82,34 +85,8 @@ export class ActivityController {
   @Get('activity')
   async listForUser(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('actorId') actorId?: string,
-    @Query('type') type?: string,
-    @Query('projectId') projectId?: string,
+    @Query() query: QueryActivityDto,
   ) {
-    return this.activity.listForUser(user.userId, {
-      actorId,
-      type: isActivityType(type) ? type : undefined,
-      projectId,
-    });
+    return this.activity.listForUser(user.userId, query);
   }
-}
-
-function isActivityType(v: string | undefined): v is ActivityType {
-  if (!v) return false;
-  // Must stay in sync with the Prisma `ActivityType` enum in schema.prisma.
-  return [
-    'CREATED',
-    'STATUS_CHANGED',
-    'ASSIGNEE_CHANGED',
-    'ASSIGNEE_ADDED',
-    'ASSIGNEE_REMOVED',
-    'PRIORITY_CHANGED',
-    'TITLE_CHANGED',
-    'DESCRIPTION_CHANGED',
-    'DUE_DATE_CHANGED',
-    'LABEL_ADDED',
-    'LABEL_REMOVED',
-    'PARENT_CHANGED',
-    'COMMENT_ADDED',
-  ].includes(v);
 }

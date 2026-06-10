@@ -83,13 +83,13 @@ export function ProjectDetailPage() {
 
   const reloadTasks = useCallback(async () => {
     if (!id) return;
-    const { data } = await tasksApi.list(id, {
+    const list = await tasksApi.list(id, {
       q: filters.q || undefined,
       assigneeId: filters.assigneeId,
       labelIds: filters.labelIds.length ? filters.labelIds : undefined,
       priority: filters.priority,
     });
-    setTasks(data);
+    setTasks(list);
   }, [id, filters]);
 
   const bumpActivity = useCallback(() => setActivityVersion((v) => v + 1), []);

@@ -23,8 +23,8 @@ export function ClosedProjectsPage() {
   const reload = async () => {
     setLoading(true);
     try {
-      const { data } = await projectsApi.list({ closed: true });
-      setProjects(data);
+      const list = await projectsApi.list({ closed: true });
+      setProjects(list);
     } finally {
       setLoading(false);
     }

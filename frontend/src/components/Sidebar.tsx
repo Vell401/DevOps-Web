@@ -47,7 +47,7 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
     setLoading(true);
     projectsApi
       .list()
-      .then((r) => mounted && setProjects(r.data))
+      .then((list) => mounted && setProjects(list))
       .finally(() => mounted && setLoading(false));
     return () => {
       mounted = false;
@@ -61,7 +61,7 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
     setLoadingClosed(true);
     projectsApi
       .list({ closed: true })
-      .then((r) => mounted && setClosed(r.data))
+      .then((list) => mounted && setClosed(list))
       .finally(() => mounted && setLoadingClosed(false));
     return () => {
       mounted = false;

@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { ActivityType, Prisma } from '@prisma/client';
+import { MAX_PAGE_SIZE, toPage } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
+
+/** Cursor/limit options shared by the activity feed queries. */
+export interface ActivityPageOpts {
+  cursor?: string;
+  limit?: number;
+}
 
 export interface ActivityLogInput {
   taskId: string;
@@ -38,25 +45,35 @@ export class ActivityService {
     });
   }
 
-  listForTask(taskId: string, limit = 100) {
-    return this.prisma.activity.findMany({
+  // All feeds use cursor pagination with `id` as a tiebreaker: createdAt is
+  // not unique (a single task update writes several rows in one transaction),
+  // and a cursor over non-deterministic order would skip or duplicate events.
+
+  async listForTask(taskId: string, opts: ActivityPageOpts = {}) {
+    const limit = opts.limit ?? MAX_PAGE_SIZE;
+    const rows = await this.prisma.activity.findMany({
       where: { taskId },
       include: { actor: { select: ACTOR_SELECT } },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
     });
+    return toPage(rows, limit);
   }
 
-  listForProject(projectId: string, limit = 200) {
-    return this.prisma.activity.findMany({
+  async listForProject(projectId: string, opts: ActivityPageOpts = {}) {
+    const limit = opts.limit ?? MAX_PAGE_SIZE;
+    const rows = await this.prisma.activity.findMany({
       where: { task: { projectId } },
       include: {
         actor: { select: ACTOR_SELECT },
         task: { select: { id: true, title: true, number: true } },
       },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
     });
+    return toPage(rows, limit);
   }
 
   /**
@@ -64,9 +81,13 @@ export class ActivityService {
    * to (owner OR explicit member OR has at least one assigned task there).
    * Optional filters: actorId, type, projectId.
    */
-  listForUser(
+  async listForUser(
     userId: string,
-    opts: { actorId?: string; type?: ActivityType; projectId?: string; limit?: number } = {},
+    opts: {
+      actorId?: string;
+      type?: ActivityType;
+      projectId?: string;
+    } & ActivityPageOpts = {},
   ) {
     const projectAccess: Prisma.ProjectWhereInput = {
       OR: [
@@ -83,7 +104,8 @@ export class ActivityService {
     if (opts.actorId) where.actorId = opts.actorId;
     if (opts.type) where.type = opts.type;
 
-    return this.prisma.activity.findMany({
+    const limit = opts.limit ?? MAX_PAGE_SIZE;
+    const rows = await this.prisma.activity.findMany({
       where,
       include: {
         actor: { select: ACTOR_SELECT },
@@ -96,9 +118,11 @@ export class ActivityService {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
-      take: opts.limit ?? 200,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
     });
+    return toPage(rows, limit);
   }
 
   /**

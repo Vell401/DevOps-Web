@@ -26,6 +26,16 @@ export class AppConfigService {
     return this.config.getOrThrow<string>('DATABASE_URL');
   }
 
+  /**
+   * Redis is opt-in: enabled only when REDIS_HOST is explicitly set (Compose
+   * always sets it). Without it the app falls back to in-process stores, so
+   * bare `npm run start:dev` and unit tests work without a Redis server.
+   */
+  get redisEnabled(): boolean {
+    const host = this.config.get<string>('REDIS_HOST');
+    return Boolean(host && host.trim());
+  }
+
   get redisHost(): string {
     return this.config.get<string>('REDIS_HOST', 'localhost');
   }
