@@ -183,7 +183,7 @@ jobs:
       # already have a fix (ignore-unfixed) so the pipeline only fails when
       # bumping a base image / dependency would actually resolve the finding.
       - name: Scan image for vulnerabilities (Trivy)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.component.image }}:${{ steps.tag.outputs.sha_tag }}
           severity: CRITICAL
