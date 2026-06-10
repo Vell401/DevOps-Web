@@ -21,7 +21,7 @@ export function ProjectsPage() {
     setLoading(true);
     projectsApi
       .list()
-      .then((r) => mounted && setProjects(r.data))
+      .then((list) => mounted && setProjects(list))
       .finally(() => mounted && setLoading(false));
     return () => {
       mounted = false;

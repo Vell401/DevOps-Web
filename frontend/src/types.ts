@@ -201,3 +201,9 @@ export interface ActivityStats {
   mostActiveTasks: { taskId: string; number: number; title: string; count: number }[];
   totalEvents30d: number;
 }
+
+/** Cursor-paginated list response (tasks, projects, activity feeds). */
+export interface Paginated<T> {
+  items: T[];
+  nextCursor: string | null;
+}

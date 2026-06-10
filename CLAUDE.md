@@ -13,9 +13,10 @@ via a self-hosted GitHub Actions runner.
 
 ## Stack
 
-- **Backend:** NestJS 10 (TypeScript) + Prisma 5, PostgreSQL 16. A Redis 7
-  container is provisioned in Compose but the app does not use it yet —
-  rate limiting (`@nestjs/throttler`) currently uses an in-memory store.
+- **Backend:** NestJS 10 (TypeScript) + Prisma 5, PostgreSQL 16. Redis 7 backs
+  the `@nestjs/throttler` rate-limit counters, the Socket.IO adapter and the
+  admin metrics cache; when `REDIS_HOST` is unset (bare `npm run start:dev`,
+  unit tests) the app transparently falls back to in-process stores.
 - **Frontend:** React 18 + Vite + TypeScript + TailwindCSS.
 - **Realtime:** Socket.IO via a NestJS WebSocket gateway at `/api/socket.io`.
 - **Object storage:** MinIO (S3-compatible) container for task attachments;

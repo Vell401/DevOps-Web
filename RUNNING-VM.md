@@ -11,7 +11,7 @@
 push в dev ──► GitHub Actions (ubuntu-latest)          push в main ──► то же
                    │                                                      │
                    ├── test    (postgres-сервис, jest, vitest)            │
-                   ├── build   (Buildx → Docker Hub :sha-XXXX, :dev/:prod, :latest)
+                   ├── build   (Buildx → Docker Hub :sha-XXXX, :dev/:prod + Trivy-скан)
                    ▼                                                      ▼
         self-hosted runner "dev" на dev-сервере      self-hosted runner "prod"
                    │                                       (на отдельном сервере)

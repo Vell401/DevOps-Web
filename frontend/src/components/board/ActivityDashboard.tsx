@@ -64,7 +64,7 @@ export function ActivityDashboard({
       .then(([s, e]) => {
         if (!mounted) return;
         setStats(s.data);
-        setEvents(e.data);
+        setEvents(e);
       })
       .finally(() => mounted && setLoading(false));
     return () => {

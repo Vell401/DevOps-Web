@@ -17,6 +17,7 @@ import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { AddMemberDto } from './dto/add-member.dto';
+import { ListProjectsDto } from './dto/list-projects.dto';
 import { JwtAccessGuard } from '../auth/guards/jwt-access.guard';
 import { CurrentUser, AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
@@ -28,11 +29,12 @@ export class ProjectsController {
   constructor(private readonly projects: ProjectsService) {}
 
   @Get()
-  list(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query('closed') closed?: string,
-  ) {
-    return this.projects.list(user.userId, { closed: closed === 'true' });
+  list(@CurrentUser() user: AuthenticatedUser, @Query() query: ListProjectsDto) {
+    return this.projects.list(user.userId, {
+      closed: query.closed === 'true',
+      cursor: query.cursor,
+      limit: query.limit,
+    });
   }
 
   @Get(':id')

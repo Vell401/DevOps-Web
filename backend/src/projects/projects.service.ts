@@ -7,6 +7,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { MAX_PAGE_SIZE, toPage } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -69,13 +70,22 @@ export class ProjectsService {
     return `${base}${Date.now().toString(36).toUpperCase()}`;
   }
 
-  async list(userId: string, opts: { closed?: boolean } = {}) {
-    const projects = await this.prisma.project.findMany({
+  async list(
+    userId: string,
+    opts: { closed?: boolean; cursor?: string; limit?: number } = {},
+  ) {
+    // Cursor pagination (id appended as a unique tiebreaker — created/closed
+    // timestamps can collide) keeps the per-request cost bounded; the DONE
+    // aggregate below then only runs for the current page.
+    const limit = opts.limit ?? MAX_PAGE_SIZE;
+    const rows = await this.prisma.project.findMany({
       where: {
         ...this.accessibleWhere(userId),
         closedAt: opts.closed ? { not: null } : null,
       },
-      orderBy: opts.closed ? { closedAt: 'desc' } : { createdAt: 'desc' },
+      orderBy: opts.closed
+        ? [{ closedAt: 'desc' }, { id: 'asc' }]
+        : [{ createdAt: 'desc' }, { id: 'asc' }],
       include: {
         _count: { select: { tasks: true } },
         // Owner + explicit members power the "people" avatar stack on the
@@ -84,21 +94,27 @@ export class ProjectsService {
         owner: USER_LITE,
         members: { ...USER_LITE, orderBy: { name: 'asc' } },
       },
+      take: limit + 1,
+      ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
     });
-    if (!projects.length) return [];
+    const page = toPage(rows, limit);
+    if (!page.items.length) return { items: [], nextCursor: page.nextCursor };
     const done = await this.prisma.task.groupBy({
       by: ['projectId'],
-      where: { projectId: { in: projects.map((p) => p.id) }, status: 'DONE' },
+      where: { projectId: { in: page.items.map((p) => p.id) }, status: 'DONE' },
       _count: { _all: true },
     });
     const doneByProject = new Map(done.map((d) => [d.projectId, d._count._all]));
-    return projects.map((p) => ({
-      ...p,
-      stats: {
-        total: p._count.tasks,
-        done: doneByProject.get(p.id) ?? 0,
-      },
-    }));
+    return {
+      items: page.items.map((p) => ({
+        ...p,
+        stats: {
+          total: p._count.tasks,
+          done: doneByProject.get(p.id) ?? 0,
+        },
+      })),
+      nextCursor: page.nextCursor,
+    };
   }
 
   /** Owner-only: project lifecycle (rename / close / reopen / delete). */

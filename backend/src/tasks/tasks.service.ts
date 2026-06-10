@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ActivityType, Prisma, TaskPriority, TaskStatus } from '@prisma/client';
+import { MAX_PAGE_SIZE, toPage } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
 import { ActivityService } from '../activity/activity.service';
@@ -100,11 +101,24 @@ export class TasksService {
       where.parentId = null;
     }
 
-    return this.prisma.task.findMany({
+    // Cursor pagination so one huge project can't pull thousands of rows in a
+    // single request. `id` is appended as a tiebreaker — the visible sort keys
+    // are not unique, and a cursor over non-deterministic order would skip or
+    // duplicate rows between pages.
+    const limit = query.limit ?? MAX_PAGE_SIZE;
+    const rows = await this.prisma.task.findMany({
       where,
       include: TASK_INCLUDE,
-      orderBy: [{ status: 'asc' }, { position: 'asc' }, { createdAt: 'desc' }],
+      orderBy: [
+        { status: 'asc' },
+        { position: 'asc' },
+        { createdAt: 'desc' },
+        { id: 'asc' },
+      ],
+      take: limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     });
+    return toPage(rows, limit);
   }
 
   async get(id: string, userId: string) {
