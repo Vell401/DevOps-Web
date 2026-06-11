@@ -40,9 +40,10 @@ limiting (`@nest-lab/throttler-storage-redis`), Socket.IO Redis-адаптер
 ## 2. Архитектура
 
 - **Backend** — модульное NestJS-приложение. Модули: `auth` (JWT access +
-  ротация refresh, bcrypt), `users`, `projects`, `tasks`, `comments`, `labels`,
-  `activity`, `admin`, `realtime` (WebSocket-шлюз), `storage` + `attachments`
-  (загрузка файлов в S3/MinIO), `health`, `config`.
+  ротация refresh, bcrypt), `users`, `projects`, `tasks`, `comments` (включая
+  @-упоминания), `labels`, `activity`, `notifications` (инбокс упоминаний,
+  прочитано/не прочитано), `admin`, `realtime` (WebSocket-шлюз), `storage` +
+  `attachments` (загрузка файлов в S3/MinIO), `health`, `config`.
   Действует глобальный `ValidationPipe` (`whitelist` + `forbidNonWhitelisted` +
   `transform`), `helmet`, rate limiting (`@nestjs/throttler`) и структурированные
   JSON-логи (`nestjs-pino`) с redact'ом заголовков `Authorization` и `Cookie`.
@@ -56,7 +57,7 @@ limiting (`@nest-lab/throttler-storage-redis`), Socket.IO Redis-адаптер
   Обновления в реальном времени поступают по Socket.IO (`/api/socket.io`).
 - **БД** — Prisma как source of truth (`backend/prisma/schema.prisma`). Сущности:
   `User`, `Project`, `Task`, `Label`, `Comment`, `Activity`, `Attachment`,
-  `RefreshToken`, а
+  `Notification`, `RefreshToken`, а
   также связующие таблицы many-to-many (исполнители задач, участники проектов,
   лейблы задач).
 - **Прод** — образы собираются в CI и публикуются в Docker Hub; на сервере их
@@ -82,8 +83,8 @@ limiting (`@nest-lab/throttler-storage-redis`), Socket.IO Redis-адаптер
 backend/                 NestJS API
   prisma/                схема, миграции, seed
   src/                   модули: auth, users, projects, tasks, comments,
-                         labels, activity, admin, realtime, storage,
-                         attachments, health, config
+                         labels, activity, notifications, admin, realtime,
+                         storage, attachments, health, config
   test/                  e2e-тесты
   Dockerfile             multi-stage, non-root, с HEALTHCHECK
 frontend/                React SPA
@@ -197,6 +198,9 @@ npx prisma migrate dev --name <короткое-описание>
 | GET, POST | `/projects/:projectId/labels` | Лейблы проекта: список / создать | Bearer |
 | PATCH, DELETE | `/labels/:id` | Изменить / удалить лейбл | Bearer (владелец) |
 | GET | `/activity` | Глобальная лента активности (inbox) | Bearer |
+| GET | `/notifications` | Уведомления пользователя (упоминания), пагинация | Bearer |
+| GET | `/notifications/unread-count` | Число непрочитанных уведомлений | Bearer |
+| POST | `/notifications/read`, `/notifications/read-all` | Отметить прочитанными | Bearer |
 | GET | `/admin/stats` | Статистика для админ-дашборда | Bearer + Admin |
 | GET | `/admin/users` | Расширенный список пользователей | Bearer + Admin |
 | PATCH | `/admin/users/:id` | Изменить name / isAdmin / пароль | Bearer + Admin |

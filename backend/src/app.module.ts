@@ -21,6 +21,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { CommentsModule } from './comments/comments.module';
 import { LabelsModule } from './labels/labels.module';
 import { ActivityModule } from './activity/activity.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { StorageModule } from './storage/storage.module';
@@ -65,6 +66,7 @@ import { AttachmentsModule } from './attachments/attachments.module';
     CommentsModule,
     LabelsModule,
     ActivityModule,
+    NotificationsModule,
     AdminModule,
     RealtimeModule,
     StorageModule,

@@ -11,6 +11,7 @@ import { cn } from '../lib/cn';
 interface Props {
   onCreateProject: () => void;
   refreshKey: number;
+  unreadNotifications: number;
 }
 
 const CLOSED_EXPANDED_KEY = 'tracker.sidebar.closedExpanded';
@@ -23,7 +24,7 @@ function readClosedExpanded(): boolean {
   }
 }
 
-export function Sidebar({ onCreateProject, refreshKey }: Props) {
+export function Sidebar({ onCreateProject, refreshKey, unreadNotifications }: Props) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -149,6 +150,29 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
           loading={loadingClosed}
         />
       </nav>
+
+      {/* Pinned above the profile: the notification inbox with unread badge. */}
+      <div className="px-2 pt-1">
+        <NavLink
+          to="/notifications"
+          className={({ isActive }) =>
+            cn(
+              'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition',
+              isActive
+                ? 'bg-surface-hover text-ink'
+                : 'text-ink-muted hover:bg-surface-hover/60 hover:text-ink',
+            )
+          }
+        >
+          <Icon.Bell size={14} />
+          <span>Notifications</span>
+          {unreadNotifications > 0 && (
+            <span className="ml-auto inline-flex h-4 min-w-[18px] items-center justify-center rounded-full bg-status-dnd px-1 text-[10px] font-semibold leading-none text-white">
+              {unreadNotifications > 99 ? '99+' : unreadNotifications}
+            </span>
+          )}
+        </NavLink>
+      </div>
 
       <div className="p-2.5">
         <div className="flex items-center gap-2 rounded-md bg-surface-deep px-2.5 py-2">

@@ -141,6 +141,12 @@ export const Icon = {
       <path d="M16 17l5-5-5-5M21 12H9" />
     </Base>
   ),
+  Bell: (p: IconProps) => (
+    <Base {...p}>
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+    </Base>
+  ),
   Paperclip: (p: IconProps) => (
     <Base {...p}>
       <path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-2.9-2.9l8.1-8.1" />

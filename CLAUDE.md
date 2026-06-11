@@ -31,8 +31,9 @@ via a self-hosted GitHub Actions runner.
 
 ```
 backend/    NestJS API — src/ modules (auth, users, projects, tasks, comments,
-            labels, activity, admin, realtime, storage, attachments, health,
-            config), prisma/ (schema, migrations, seed), test/ (e2e), Dockerfile
+            labels, activity, notifications, admin, realtime, storage,
+            attachments, health, config), prisma/ (schema, migrations, seed),
+            test/ (e2e), Dockerfile
 frontend/   React SPA — src/ (pages, components, api client, auth context), nginx.conf, Dockerfile
 deploy/     edge.conf — production reverse-proxy config (HTTP + WebSocket upgrade)
 .github/    workflows: ci.yml (PRs), dev-cd.yml (push to dev), prod-cd.yml (push to main)

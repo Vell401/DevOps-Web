@@ -174,6 +174,11 @@ export class RealtimeGateway
       .emit('attachment-removed', { taskId, attachmentId });
   }
 
+  /** Push an in-app notification (e.g. a comment mention) to one user. */
+  emitNotification(userId: string, notification: unknown) {
+    this.server.to(userRoom(userId)).emit('notification', notification);
+  }
+
   /**
    * Notify a set of users that their list of visible projects may have
    * changed (new assignment, project closed, etc). The frontend reacts by
