@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { useEffect } from 'react';
 import { tokenStorage } from '../api/client';
-import type { Attachment, Comment, Task } from '../types';
+import type { AppNotification, Attachment, Comment, Task } from '../types';
 
 interface ServerEvents {
   'task-upserted': (task: Task) => void;
@@ -14,6 +14,7 @@ interface ServerEvents {
 
 interface UserEvents {
   'projects-changed': () => void;
+  notification: (n: AppNotification) => void;
 }
 
 type Handlers = {

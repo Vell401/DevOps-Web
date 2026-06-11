@@ -207,3 +207,22 @@ export interface Paginated<T> {
   items: T[];
   nextCursor: string | null;
 }
+
+export type AppNotificationType = 'MENTIONED';
+
+/** In-app notification ("X mentioned you in a comment on PRJ-12"). */
+export interface AppNotification {
+  id: string;
+  type: AppNotificationType;
+  /** null = unread; ISO timestamp once the user has seen it. */
+  readAt: string | null;
+  createdAt: string;
+  actor?: UserLite | null;
+  task?: {
+    id: string;
+    number: number;
+    title: string;
+    project?: { id: string; key: string; name: string };
+  } | null;
+  comment?: { id: string; body: string } | null;
+}

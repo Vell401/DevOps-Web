@@ -6,6 +6,7 @@ import type {
   AdminMetrics,
   AdminStats,
   AdminUser,
+  AppNotification,
   Attachment,
   LoginEvent,
   Comment,
@@ -144,9 +145,30 @@ export const tasksApi = {
 
 export const commentsApi = {
   list: (taskId: string) => api.get<Comment[]>(`/tasks/${taskId}/comments`),
-  create: (taskId: string, body: string) =>
-    api.post<Comment>(`/tasks/${taskId}/comments`, { body }),
+  /** `mentions` — ids of users picked via the @ autocomplete (notified server-side). */
+  create: (taskId: string, body: string, mentions?: string[]) =>
+    api.post<Comment>(`/tasks/${taskId}/comments`, {
+      body,
+      ...(mentions?.length ? { mentions } : {}),
+    }),
   remove: (id: string) => api.delete(`/comments/${id}`),
+};
+
+export const notificationsApi = {
+  /** One page, newest first; pass the previous page's cursor to continue. */
+  list: async (cursor?: string) => {
+    const { data } = await api.get<Paginated<AppNotification>>('/notifications', {
+      params: cursor ? { cursor } : undefined,
+    });
+    return data;
+  },
+  unreadCount: async () => {
+    const { data } = await api.get<{ count: number }>('/notifications/unread-count');
+    return data.count;
+  },
+  markRead: (ids: string[]) =>
+    api.post<{ updated: number }>('/notifications/read', { ids }),
+  markAllRead: () => api.post<{ updated: number }>('/notifications/read-all'),
 };
 
 export const attachmentsApi = {

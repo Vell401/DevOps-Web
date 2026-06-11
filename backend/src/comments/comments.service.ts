@@ -9,6 +9,7 @@ import { TasksService } from '../tasks/tasks.service';
 import { ActivityService } from '../activity/activity.service';
 import { ProjectsService } from '../projects/projects.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
 
 const COMMENT_PREVIEW = 120;
@@ -21,6 +22,7 @@ export class CommentsService {
     private readonly activity: ActivityService,
     private readonly projects: ProjectsService,
     private readonly realtime: RealtimeGateway,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async listForTask(taskId: string, userId: string) {
@@ -39,31 +41,52 @@ export class CommentsService {
     await this.projects.assertNotClosed(task.projectId);
     const body = dto.body.trim();
 
-    const comment = await this.prisma.$transaction(async (tx) => {
-      const c = await tx.comment.create({
-        data: { body, taskId, authorId: userId },
-        include: {
-          author: { select: { id: true, name: true, email: true, avatarColor: true } },
-        },
-      });
+    // Mention fan-out: distinct ids, never the author, and only people who can
+    // actually open this project (owner / explicit member / task assignee).
+    // Mentions of outsiders are silently dropped — notifying someone about a
+    // project they cannot see would itself be an information leak.
+    const participants = new Set(await this.projects.memberIds(task.projectId));
+    const recipientIds = [...new Set(dto.mentions ?? [])].filter(
+      (id) => id !== userId && participants.has(id),
+    );
 
-      await this.activity.log(
-        {
-          taskId,
-          actorId: userId,
-          type: ActivityType.COMMENT_ADDED,
-          toValue:
-            body.length > COMMENT_PREVIEW
-              ? `${body.slice(0, COMMENT_PREVIEW)}…`
-              : body,
-        },
-        tx,
-      );
+    const { comment, mentionNotifications } = await this.prisma.$transaction(
+      async (tx) => {
+        const c = await tx.comment.create({
+          data: { body, taskId, authorId: userId },
+          include: {
+            author: { select: { id: true, name: true, email: true, avatarColor: true } },
+          },
+        });
 
-      return c;
-    });
+        await this.activity.log(
+          {
+            taskId,
+            actorId: userId,
+            type: ActivityType.COMMENT_ADDED,
+            toValue:
+              body.length > COMMENT_PREVIEW
+                ? `${body.slice(0, COMMENT_PREVIEW)}…`
+                : body,
+          },
+          tx,
+        );
+
+        const created = await this.notifications.createMentions(
+          { recipientIds, actorId: userId, taskId, commentId: c.id },
+          tx,
+        );
+
+        return { comment: c, mentionNotifications: created };
+      },
+    );
 
     this.realtime.emitCommentAdded(task.projectId, taskId, comment);
+    // Push each mention straight to the recipient's socket so the bell badge
+    // updates without polling.
+    for (const n of mentionNotifications) {
+      this.realtime.emitNotification(n.userId, n);
+    }
     // Surface comment activity into the global inbox of all project members.
     const members = await this.projects.memberIds(task.projectId);
     this.realtime.emitProjectsChangedForUsers([...members, userId]);

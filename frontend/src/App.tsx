@@ -6,6 +6,7 @@ import { ProjectsPage } from './pages/ProjectsPage';
 import { ClosedProjectsPage } from './pages/ClosedProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { ActivityPage } from './pages/ActivityPage';
+import { NotificationsPage } from './pages/NotificationsPage';
 import { AdminPage } from './pages/AdminPage';
 import { AdminMetricsPage } from './pages/AdminMetricsPage';
 import { RequireAuth } from './auth/RequireAuth';
@@ -28,6 +29,7 @@ export function App() {
         <Route path="/projects/closed" element={<ClosedProjectsPage />} />
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
         <Route path="/activity" element={<ActivityPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
         <Route
           path="/admin"
           element={

@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type {
   Activity,
@@ -36,6 +36,8 @@ import {
 } from '../../lib/meta';
 import { timeAgo, toIsoDateInput } from '../../lib/format';
 import { apiError } from '../../lib/apiError';
+import { mentionedIds, mentionQueryAt } from '../../lib/mentions';
+import { MentionText } from '../../ui/MentionText';
 import { cn } from '../../lib/cn';
 import type { LabelColor } from '../../types';
 
@@ -278,6 +280,7 @@ export function TaskDrawer({
               <CommentsTab
                 taskId={task.id}
                 comments={comments}
+                users={users}
                 currentUserId={currentUserId}
                 canModerateComments={canModerateComments}
                 onAdded={reload}
@@ -992,6 +995,7 @@ function SubtasksSection({
 function CommentsTab({
   taskId,
   comments,
+  users,
   currentUserId,
   canModerateComments,
   onAdded,
@@ -999,6 +1003,7 @@ function CommentsTab({
 }: {
   taskId: string;
   comments: Comment[];
+  users: UserLite[];
   currentUserId: string | undefined;
   canModerateComments: boolean;
   onAdded: () => void;
@@ -1006,7 +1011,45 @@ function CommentsTab({
 }) {
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
+  // Active "@query" under the caret (null = autocomplete closed) + the
+  // keyboard-highlighted row of the dropdown.
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const toast = useToast();
+
+  const candidates = useMemo(() => {
+    if (!mention) return [];
+    const q = mention.query.toLowerCase();
+    return users
+      .filter(
+        (u) =>
+          !q ||
+          u.name.toLowerCase().includes(q) ||
+          u.email.toLowerCase().includes(q),
+      )
+      .slice(0, 6);
+  }, [mention, users]);
+
+  const syncMention = (el: HTMLTextAreaElement) => {
+    setMention(mentionQueryAt(el.value, el.selectionStart ?? el.value.length));
+    setActiveIdx(0);
+  };
+
+  const pick = (u: UserLite) => {
+    if (!mention) return;
+    const el = inputRef.current;
+    const caret = el?.selectionStart ?? body.length;
+    const inserted = `@${u.name} `;
+    setBody(body.slice(0, mention.start) + inserted + body.slice(caret));
+    setMention(null);
+    // Re-focus and park the caret right after the inserted mention.
+    const pos = mention.start + inserted.length;
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(pos, pos);
+    });
+  };
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -1014,8 +1057,11 @@ function CommentsTab({
     if (!text) return;
     setBusy(true);
     try {
-      await commentsApi.create(taskId, text);
+      // Mentions = users whose "@Name" survived editing until submit. The
+      // server re-filters to actual project participants.
+      await commentsApi.create(taskId, text, mentionedIds(text, users));
       setBody('');
+      setMention(null);
       onAdded();
       toast.push('Comment posted', 'success');
     } catch (err) {
@@ -1028,21 +1074,84 @@ function CommentsTab({
   return (
     <div className="space-y-3">
       <form onSubmit={onSubmit} className="rounded-lg border border-line bg-surface p-2">
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Write a comment… (Cmd/Ctrl+Enter to send)"
-          rows={3}
-          className="w-full resize-none bg-transparent px-2 py-1 text-sm text-ink placeholder:text-ink-subtle focus:outline-none"
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-              void onSubmit(e as unknown as FormEvent);
-            }
-          }}
-        />
+        <div className="relative">
+          <textarea
+            ref={inputRef}
+            value={body}
+            onChange={(e) => {
+              setBody(e.target.value);
+              syncMention(e.currentTarget);
+            }}
+            onClick={(e) => syncMention(e.currentTarget)}
+            onKeyUp={(e) => {
+              if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+                syncMention(e.currentTarget);
+              }
+            }}
+            placeholder="Write a comment… @ to mention"
+            rows={3}
+            className="w-full resize-none bg-transparent px-2 py-1 text-sm text-ink placeholder:text-ink-subtle focus:outline-none"
+            onKeyDown={(e) => {
+              // While the @ dropdown is open, the keyboard drives it — plain
+              // Enter picks; Cmd/Ctrl+Enter still always submits.
+              if (mention && candidates.length && !e.metaKey && !e.ctrlKey) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setActiveIdx((i) => (i + 1) % candidates.length);
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setActiveIdx((i) => (i - 1 + candidates.length) % candidates.length);
+                  return;
+                }
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault();
+                  pick(candidates[activeIdx]);
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  setMention(null);
+                  return;
+                }
+              }
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                void onSubmit(e as unknown as FormEvent);
+              }
+            }}
+          />
+          {mention && candidates.length > 0 && (
+            <div className="absolute inset-x-0 top-full z-20 mt-1 overflow-hidden rounded-md border border-line bg-surface shadow-card">
+              {candidates.map((u, i) => (
+                <button
+                  type="button"
+                  key={u.id}
+                  // mousedown (not click) so the textarea doesn't blur first.
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pick(u);
+                  }}
+                  onMouseEnter={() => setActiveIdx(i)}
+                  className={cn(
+                    'flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm transition',
+                    i === activeIdx
+                      ? 'bg-surface-hover text-ink'
+                      : 'text-ink-muted',
+                  )}
+                >
+                  <Avatar name={u.name} color={u.avatarColor} size="xs" />
+                  <span className="truncate">{u.name}</span>
+                  <span className="ml-auto truncate text-[11px] text-ink-subtle">
+                    {u.email}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="flex items-center justify-between border-t border-line pt-2">
           <span className="text-[11px] text-ink-subtle">
-            Markdown coming soon · Cmd/Ctrl + Enter to send
+            @ to mention · Cmd/Ctrl + Enter to send
           </span>
           <button type="submit" className="btn-primary h-7 px-2 text-xs" disabled={busy || !body.trim()}>
             {busy ? <Spinner className="border-paper border-t-paper/40" /> : 'Comment'}
@@ -1094,7 +1203,7 @@ function CommentsTab({
                 )}
               </div>
               <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-ink">
-                {c.body}
+                <MentionText text={c.body} users={users} />
               </p>
             </li>
           );

@@ -5,9 +5,16 @@ import { TasksModule } from '../tasks/tasks.module';
 import { ActivityModule } from '../activity/activity.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [TasksModule, ActivityModule, ProjectsModule, RealtimeModule],
+  imports: [
+    TasksModule,
+    ActivityModule,
+    ProjectsModule,
+    RealtimeModule,
+    NotificationsModule,
+  ],
   controllers: [CommentsController],
   providers: [CommentsService],
 })
