@@ -156,10 +156,12 @@ jobs:
         with:
           context: ${{ matrix.component.context }}
           push: true
+          # Immutable sha tag (what deploys/rollbacks reference) + the moving
+          # environment pointer. No ":latest": a moving default tag invites
+          # accidental deploys of whatever was built last.
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.component.image }}:${{ steps.tag.outputs.sha_tag }}
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.component.image }}:dev
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.component.image }}:latest
           cache-from: type=gha,scope=${{ matrix.component.name }}
           cache-to: type=gha,scope=${{ matrix.component.name }},mode=max
           # Provenance args are consumed only by the backend image; emit them
@@ -170,6 +172,17 @@ jobs:
             ${{ matrix.component.name == 'backend' && format('GIT_SHA={0}', steps.tag.outputs.git_sha) || '' }}
             ${{ matrix.component.name == 'backend' && format('BUILD_TIME={0}', steps.tag.outputs.build_time) || '' }}
             ${{ matrix.component.name == 'backend' && format('APP_VERSION={0}', github.ref_name) || '' }}
+
+      # Gate the rollout on image vulnerabilities. Scoped to CRITICAL CVEs that
+      # already have a fix (ignore-unfixed) so the pipeline only fails when
+      # bumping a base image / dependency would actually resolve the finding.
+      - name: Scan image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.component.image }}:${{ steps.tag.outputs.sha_tag }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
 
   # ---------------------------------------------------------------------------
   # 3. DEPLOY — on the self-hosted runner, on the VM

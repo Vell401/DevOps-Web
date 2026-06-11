@@ -53,6 +53,13 @@ services:
       - "127.0.0.1:9001:9001"
     volumes:
       - minio_data:/data
+    healthcheck:
+      # `mc ready local` is MinIO's documented liveness probe (the image
+      # bundles mc with a built-in alias for its own endpoint).
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend:
     build:
@@ -86,7 +93,7 @@ services:
       redis:
         condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "3000:3000"
 
@@ -99,8 +106,9 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+    # The image is nginx-unprivileged (non-root), which listens on 8080.
     ports:
-      - "5173:80"
+      - "5173:8080"
 
 volumes:
   postgres_data:

@@ -7,6 +7,7 @@ import { Logger as PinoLogger } from 'nestjs-pino';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AppConfigService } from './config/app-config.service';
+import { RedisIoAdapter } from './realtime/redis-io.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -22,6 +23,15 @@ async function bootstrap() {
   app.set('trust proxy', 1);
 
   const config = app.get(AppConfigService);
+
+  // Route Socket.IO broadcasts through Redis pub/sub so realtime events reach
+  // clients on any backend replica. Skipped when Redis isn't configured —
+  // single-process deployments work fine on the default in-memory adapter.
+  if (config.redisEnabled) {
+    app.useWebSocketAdapter(
+      new RedisIoAdapter(app).useRedis(config.redisHost, config.redisPort),
+    );
+  }
 
   // For a LAN pet-project served over plain HTTP:
   //   - CSP off:  Swagger UI uses inline scripts and eval(); strict CSP makes

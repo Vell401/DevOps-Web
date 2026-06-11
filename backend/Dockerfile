@@ -22,7 +22,11 @@ RUN npm prune --omit=dev
 FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apk add --no-cache openssl tini \
+# apk upgrade keeps base-image libs at the branch's latest security patches —
+# the CI Trivy gate fails the build on fixable CRITICALs (same policy as the
+# frontend image).
+RUN apk upgrade --no-cache \
+  && apk add --no-cache openssl tini \
   && addgroup -S app && adduser -S app -G app
 
 COPY --from=build --chown=app:app /app/node_modules ./node_modules

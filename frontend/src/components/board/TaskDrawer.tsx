@@ -102,7 +102,7 @@ export function TaskDrawer({
       ]);
       setTask(t.data);
       setComments(c.data);
-      setActivities(a.data);
+      setActivities(a);
       setAttachments(att.data);
     } finally {
       setLoading(false);
@@ -195,7 +195,7 @@ export function TaskDrawer({
         const { data } = await tasksApi.update(taskId, body);
         setTask((prev) => (prev ? { ...prev, ...data } : data));
         const a = await tasksApi.activity(taskId);
-        setActivities(a.data);
+        setActivities(a);
         onChanged();
       } catch (err) {
         toast.push(apiError(err, 'Could not update task'), 'error');

@@ -1,11 +1,14 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 
 import { AppConfigModule } from './config/app-config.module';
 import { AppConfigService } from './config/app-config.service';
+import { RedisModule } from './redis/redis.module';
+import { RedisService } from './redis/redis.service';
 import { MetricsModule } from './metrics/metrics.module';
 import { ThrottlerMetricsFilter } from './metrics/throttler-metrics.filter';
 import { HttpMetricsMiddleware } from './metrics/http-metrics.middleware';
@@ -27,6 +30,7 @@ import { AttachmentsModule } from './attachments/attachments.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     AppConfigModule,
+    RedisModule,
     MetricsModule,
     LoggerModule.forRootAsync({
       imports: [AppConfigModule],
@@ -40,11 +44,17 @@ import { AttachmentsModule } from './attachments/attachments.module';
       }),
     }),
     ThrottlerModule.forRootAsync({
-      imports: [AppConfigModule],
-      inject: [AppConfigService],
-      useFactory: (cfg: AppConfigService) => [
-        { ttl: cfg.throttleTtl * 1000, limit: cfg.throttleLimit },
-      ],
+      imports: [AppConfigModule, RedisModule],
+      inject: [AppConfigService, RedisService],
+      useFactory: (cfg: AppConfigService, redis: RedisService) => ({
+        throttlers: [{ ttl: cfg.throttleTtl * 1000, limit: cfg.throttleLimit }],
+        // Redis-backed counters give one shared rate-limit budget across all
+        // backend replicas; without Redis each process keeps its own (the old
+        // in-memory behaviour).
+        storage: redis.connection
+          ? new ThrottlerStorageRedisService(redis.connection)
+          : undefined,
+      }),
     }),
     PrismaModule,
     HealthModule,

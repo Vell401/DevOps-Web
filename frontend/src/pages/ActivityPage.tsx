@@ -42,21 +42,36 @@ export function ActivityPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [filter, setFilter] = useState<FilterState>({});
   const [loading, setLoading] = useState(true);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await activityApi.global(filter);
-      setEvents(data);
+      const page = await activityApi.global(filter);
+      setEvents(page.items);
+      setNextCursor(page.nextCursor);
     } finally {
       setLoading(false);
     }
   }, [filter]);
 
+  const loadMore = useCallback(async () => {
+    if (!nextCursor) return;
+    setLoadingMore(true);
+    try {
+      const page = await activityApi.global(filter, nextCursor);
+      setEvents((prev) => [...prev, ...page.items]);
+      setNextCursor(page.nextCursor);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [filter, nextCursor]);
+
   useEffect(() => {
     Promise.all([usersApi.list(), projectsApi.list()]).then(([u, p]) => {
       setUsers(u.data);
-      setProjects(p.data);
+      setProjects(p);
     });
   }, []);
 
@@ -239,6 +254,24 @@ export function ActivityPage() {
               </section>
             ))}
           </div>
+
+          {nextCursor && (
+            <div className="mt-5 flex justify-center">
+              <button
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+                className="btn-secondary h-8 px-4 text-xs"
+              >
+                {loadingMore ? (
+                  <>
+                    <Spinner /> Loading…
+                  </>
+                ) : (
+                  'Load more'
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </>

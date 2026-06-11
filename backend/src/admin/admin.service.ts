@@ -7,7 +7,17 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/app-config.service';
 import { MetricsService } from '../metrics/metrics.service';
+import { RedisService } from '../redis/redis.service';
 import { AdminUpdateUserDto } from './dto/update-user.dto';
+
+interface DerivedMetricsSnapshot {
+  at: number;
+  iso: string;
+  storage: { totalBytes: number; fileCount: number };
+  sessions: number;
+}
+
+const DERIVED_CACHE_KEY = 'admin:metrics:derived';
 
 @Injectable()
 export class AdminService {
@@ -15,16 +25,13 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly metricsStore: MetricsService,
     private readonly cfg: AppConfigService,
+    private readonly redis: RedisService,
   ) {}
 
-  // Cached snapshot of the DB-derived metrics. Populated lazily and reused
-  // within `metricsCacheTtlMs` so dashboard polling can't hammer the database.
-  private derivedCache: {
-    at: number;
-    iso: string;
-    storage: { totalBytes: number; fileCount: number };
-    sessions: number;
-  } | null = null;
+  // Process-local fallback for the DB-derived metrics snapshot, used when
+  // Redis is not configured. With Redis, the snapshot lives there instead so
+  // every replica (and every polling admin) shares a single cache window.
+  private derivedCache: DerivedMetricsSnapshot | null = null;
 
   async listUsers() {
     const users = await this.prisma.user.findMany({
@@ -234,9 +241,15 @@ export class AdminService {
   /** Storage usage + active sessions, computed from the DB at most once per
    *  cache window. The storage figure is summed from attachment rows rather
    *  than scanning the object store. */
-  private async derivedMetrics() {
+  private async derivedMetrics(): Promise<DerivedMetricsSnapshot> {
+    const ttl = this.cfg.metricsCacheTtlMs;
     const now = Date.now();
-    if (this.derivedCache && now - this.derivedCache.at < this.cfg.metricsCacheTtlMs) {
+
+    // Shared cache first (key expires via PX, the `at` check is a belt-and-
+    // braces guard); fall back to the process-local copy without Redis.
+    const shared = await this.redis.getJson<DerivedMetricsSnapshot>(DERIVED_CACHE_KEY);
+    if (shared && now - shared.at < ttl) return shared;
+    if (this.derivedCache && now - this.derivedCache.at < ttl) {
       return this.derivedCache;
     }
 
@@ -250,7 +263,7 @@ export class AdminService {
       }),
     ]);
 
-    this.derivedCache = {
+    const snapshot: DerivedMetricsSnapshot = {
       at: now,
       iso: new Date(now).toISOString(),
       storage: {
@@ -259,7 +272,9 @@ export class AdminService {
       },
       sessions,
     };
-    return this.derivedCache;
+    this.derivedCache = snapshot;
+    await this.redis.setJson(DERIVED_CACHE_KEY, snapshot, ttl);
+    return snapshot;
   }
 
   /** Recent authentication attempts for one user (newest first). */
