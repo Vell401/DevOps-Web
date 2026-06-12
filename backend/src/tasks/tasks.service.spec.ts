@@ -1,11 +1,12 @@
 import { Test } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
-import { ActivityType } from '@prisma/client';
+import { ActivityType, NotificationType } from '@prisma/client';
 
 import { TasksService } from './tasks.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
 import { ActivityService } from '../activity/activity.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 describe('TasksService', () => {
@@ -21,31 +22,43 @@ describe('TasksService', () => {
       findMany: jest.fn(),
       delete: jest.fn(),
     },
+    user: { findMany: jest.fn() },
     $transaction: jest.fn(async (cb: (tx: typeof txMock) => unknown) => cb(txMock)),
   };
   const projectsMock = {
     getAccessible: jest.fn(),
+    assertRole: jest.fn(),
+    roleIn: jest.fn(),
+    ensureMember: jest.fn(),
     assertNotClosed: jest.fn(),
     syncClosureState: jest.fn().mockResolvedValue('unchanged'),
     memberIds: jest.fn().mockResolvedValue([]),
   };
   const activityMock = { log: jest.fn().mockResolvedValue({ id: 'a1' }) };
+  const notificationsMock = { notify: jest.fn().mockResolvedValue([]) };
   const realtimeMock = {
     emitTaskUpserted: jest.fn(),
     emitTaskDeleted: jest.fn(),
+    emitNotification: jest.fn(),
     emitProjectsChangedForUsers: jest.fn(),
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // clearAllMocks does NOT drop queued mockResolvedValueOnce values; reset
+    // the tx mocks fully so a failed test can't leak its queue into the next.
+    txMock.task.findUnique.mockReset();
+    txMock.task.update.mockReset();
     projectsMock.syncClosureState.mockResolvedValue('unchanged');
     projectsMock.memberIds.mockResolvedValue([]);
+    notificationsMock.notify.mockResolvedValue([]);
     const moduleRef = await Test.createTestingModule({
       providers: [
         TasksService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: ProjectsService, useValue: projectsMock },
         { provide: ActivityService, useValue: activityMock },
+        { provide: NotificationsService, useValue: notificationsMock },
         { provide: RealtimeGateway, useValue: realtimeMock },
       ],
     }).compile();
@@ -96,7 +109,7 @@ describe('TasksService', () => {
     });
   });
 
-  describe('update (concurrent PATCH regression)', () => {
+  describe('update (roles + concurrent PATCH regression)', () => {
     // Regression guard for the activity-diff bug: the "before" state used for
     // diffs must be read INSIDE the transaction. If another writer commits
     // between the permission read and our transaction, diffs computed from the
@@ -112,11 +125,12 @@ describe('TasksService', () => {
       parentId: null,
       assignees: [],
       labels: [],
-      project: { id: 'p1', ownerId: 'u1', members: [] },
+      project: { id: 'p1', key: 'PRJ', name: 'Project', ownerId: 'u1' },
     };
 
     it('logs a status diff computed from the in-transaction read', async () => {
       prismaMock.task.findUnique.mockResolvedValueOnce({ ...outerRead });
+      projectsMock.roleIn.mockResolvedValue('OWNER');
       txMock.task.findUnique.mockResolvedValueOnce({ ...outerRead });
       txMock.task.update.mockResolvedValueOnce({
         ...outerRead,
@@ -139,6 +153,7 @@ describe('TasksService', () => {
     it('logs nothing when a concurrent writer already applied the same status', async () => {
       // Outer (stale) read still says TODO…
       prismaMock.task.findUnique.mockResolvedValueOnce({ ...outerRead });
+      projectsMock.roleIn.mockResolvedValue('OWNER');
       // …but inside the transaction the row is already IN_PROGRESS.
       txMock.task.findUnique.mockResolvedValueOnce({
         ...outerRead,
@@ -154,16 +169,91 @@ describe('TasksService', () => {
       expect(activityMock.log).not.toHaveBeenCalled();
     });
 
-    it('blocks non-owners from changing owner-only fields', async () => {
-      prismaMock.task.findUnique.mockResolvedValueOnce({
-        ...outerRead,
-        project: { id: 'p1', ownerId: 'someone-else', members: [{ id: 'u1' }] },
-      });
+    it('blocks VIEWERs from any modification, even status', async () => {
+      prismaMock.task.findUnique.mockResolvedValueOnce({ ...outerRead });
+      projectsMock.roleIn.mockResolvedValue('VIEWER');
 
       await expect(
-        service.update('t1', 'u1', { title: 'hijacked' }),
+        service.update('t1', 'viewer', { status: 'IN_PROGRESS' }),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('auto-adds new assignees as members and notifies them', async () => {
+      prismaMock.task.findUnique.mockResolvedValueOnce({ ...outerRead });
+      prismaMock.user.findMany.mockResolvedValueOnce([
+        { id: 'newbie' },
+        { id: 'actor' },
+      ]);
+      projectsMock.roleIn.mockResolvedValue('EDITOR');
+      txMock.task.findUnique.mockResolvedValueOnce({ ...outerRead });
+      txMock.task.update.mockResolvedValueOnce({
+        ...outerRead,
+        assignees: [{ id: 'newbie' }, { id: 'actor' }],
+      });
+      notificationsMock.notify.mockResolvedValueOnce([
+        { id: 'n1', userId: 'newbie' },
+      ]);
+
+      await service.update('t1', 'actor', { assigneeIds: ['newbie', 'actor'] });
+
+      expect(projectsMock.ensureMember).toHaveBeenCalledWith('p1', 'newbie', txMock);
+      expect(projectsMock.ensureMember).toHaveBeenCalledWith('p1', 'actor', txMock);
+      // The actor never gets notified about their own action.
+      expect(notificationsMock.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientIds: ['newbie'],
+          type: NotificationType.ASSIGNED,
+          actorId: 'actor',
+        }),
+        txMock,
+      );
+      expect(realtimeMock.emitNotification).toHaveBeenCalledWith('newbie', {
+        id: 'n1',
+        userId: 'newbie',
+      });
+    });
+
+    it('notifies assignees (minus the actor) about status changes', async () => {
+      prismaMock.task.findUnique.mockResolvedValueOnce({ ...outerRead });
+      projectsMock.roleIn.mockResolvedValue('EDITOR');
+      txMock.task.findUnique.mockResolvedValueOnce({
+        ...outerRead,
+        assignees: [{ id: 'assignee' }, { id: 'actor' }],
+      });
+      txMock.task.update.mockResolvedValueOnce({
+        ...outerRead,
+        status: 'DONE',
+        assignees: [{ id: 'assignee' }, { id: 'actor' }],
+      });
+
+      await service.update('t1', 'actor', { status: 'DONE' });
+
+      expect(notificationsMock.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientIds: ['assignee'],
+          type: NotificationType.TASK_STATUS_CHANGED,
+        }),
+        txMock,
+      );
+    });
+  });
+
+  describe('remove', () => {
+    it('requires ADMIN+ (editors cannot delete)', async () => {
+      prismaMock.task.findUnique.mockResolvedValueOnce({
+        id: 't1',
+        projectId: 'p1',
+        assignees: [],
+        project: { id: 'p1', ownerId: 'owner' },
+      });
+      projectsMock.roleIn.mockResolvedValue('EDITOR');
+      projectsMock.assertRole.mockRejectedValueOnce(new ForbiddenException());
+
+      await expect(service.remove('t1', 'editor')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(prismaMock.task.delete).not.toHaveBeenCalled();
     });
   });
 });

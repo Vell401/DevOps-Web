@@ -7,6 +7,7 @@ interface ServerEvents {
   'task-upserted': (task: Task) => void;
   'task-deleted': (payload: { taskId: string }) => void;
   'comment-added': (payload: { taskId: string; comment: Comment }) => void;
+  'comment-updated': (payload: { taskId: string; comment: Comment }) => void;
   'comment-deleted': (payload: { taskId: string; commentId: string }) => void;
   'attachment-added': (payload: { taskId: string; attachment: Attachment }) => void;
   'attachment-removed': (payload: { taskId: string; attachmentId: string }) => void;

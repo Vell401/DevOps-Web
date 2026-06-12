@@ -9,6 +9,7 @@ describe('NotificationsService', () => {
   const prismaMock = {
     notification: {
       create: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
       updateMany: jest.fn(),
@@ -26,14 +27,15 @@ describe('NotificationsService', () => {
     service = moduleRef.get(NotificationsService);
   });
 
-  describe('createMentions', () => {
-    it('creates one MENTIONED row per recipient', async () => {
+  describe('notify', () => {
+    it('creates one row of the given type per recipient', async () => {
       prismaMock.notification.create
         .mockResolvedValueOnce({ id: 'n1', userId: 'u1' })
         .mockResolvedValueOnce({ id: 'n2', userId: 'u2' });
 
-      const rows = await service.createMentions({
+      const rows = await service.notify({
         recipientIds: ['u1', 'u2'],
+        type: 'MENTIONED',
         actorId: 'author',
         taskId: 't1',
         commentId: 'c1',
@@ -56,12 +58,23 @@ describe('NotificationsService', () => {
 
     it('uses the provided transaction client', async () => {
       const txMock = { notification: { create: jest.fn().mockResolvedValue({ id: 'n1' }) } };
-      await service.createMentions(
-        { recipientIds: ['u1'], actorId: 'a', taskId: 't', commentId: 'c' },
+      await service.notify(
+        { recipientIds: ['u1'], type: 'ASSIGNED', actorId: 'a', taskId: 't' },
         txMock as never,
       );
       expect(txMock.notification.create).toHaveBeenCalledTimes(1);
       expect(prismaMock.notification.create).not.toHaveBeenCalled();
+    });
+
+    it('wasRecentlyNotified checks the dedup window per user+task+type', async () => {
+      prismaMock.notification.findFirst.mockResolvedValueOnce({ id: 'n1' });
+      await expect(
+        service.wasRecentlyNotified('u1', 't1', 'DUE_SOON', 1000),
+      ).resolves.toBe(true);
+      prismaMock.notification.findFirst.mockResolvedValueOnce(null);
+      await expect(
+        service.wasRecentlyNotified('u1', 't1', 'DUE_SOON', 1000),
+      ).resolves.toBe(false);
     });
   });
 

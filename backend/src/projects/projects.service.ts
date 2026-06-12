@@ -6,7 +6,7 @@ import {
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, ProjectRole } from '@prisma/client';
 import { MAX_PAGE_SIZE, toPage } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
@@ -16,8 +16,25 @@ import { UpdateProjectDto } from './dto/update-project.dto';
 const FALLBACK_KEY = 'PRJ';
 
 const USER_LITE = {
-  select: { id: true, name: true, email: true, avatarColor: true },
+  select: { id: true, name: true, email: true, avatarColor: true, avatarKey: true },
 } as const;
+
+/** A user's effective role in a project. Ownership outranks every member role. */
+export type EffectiveRole = ProjectRole | 'OWNER';
+
+const ROLE_RANK: Record<EffectiveRole, number> = {
+  VIEWER: 0,
+  EDITOR: 1,
+  ADMIN: 2,
+  OWNER: 3,
+};
+
+export function roleAtLeast(
+  role: EffectiveRole | null,
+  min: EffectiveRole,
+): boolean {
+  return role !== null && ROLE_RANK[role] >= ROLE_RANK[min];
+}
 
 function deriveKeyBase(name: string): string {
   const cleaned = name.trim().toUpperCase().replace(/[^A-Z0-9\s]/g, ' ');
@@ -42,19 +59,71 @@ export class ProjectsService {
   ) {}
 
   /**
-   * Membership rule: a user has access to a project if any of these is true:
-   *   - they OWN it
-   *   - they are an explicit member (added by the owner via the members API)
-   *   - they are an assignee of at least one task in it (implicit membership)
+   * Access rule: a user can see a project if they OWN it or have a member row
+   * (any role). Task assignees are auto-added as EDITOR members on assignment,
+   * so there is no separate "implicit membership" path any more.
    */
   private accessibleWhere(userId: string): Prisma.ProjectWhereInput {
     return {
-      OR: [
-        { ownerId: userId },
-        { members: { some: { id: userId } } },
-        { tasks: { some: { assignees: { some: { id: userId } } } } },
-      ],
+      OR: [{ ownerId: userId }, { memberships: { some: { userId } } }],
     };
+  }
+
+  /**
+   * Effective role of a user in a project: OWNER, the member-row role, or
+   * null when they have no access. Throws 404 when the project is missing.
+   */
+  async roleIn(
+    projectId: string,
+    userId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<EffectiveRole | null> {
+    const client = tx ?? this.prisma;
+    const project = await client.project.findUnique({
+      where: { id: projectId },
+      select: { ownerId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    if (project.ownerId === userId) return 'OWNER';
+    const member = await client.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+      select: { role: true },
+    });
+    return member?.role ?? null;
+  }
+
+  /** Throws 403 unless the user's effective role is at least `min`. */
+  async assertRole(
+    projectId: string,
+    userId: string,
+    min: EffectiveRole,
+  ): Promise<EffectiveRole> {
+    const role = await this.roleIn(projectId, userId);
+    if (!roleAtLeast(role, min)) throw new ForbiddenException();
+    return role as EffectiveRole;
+  }
+
+  /**
+   * Auto-add on assignment: assigning a task to a non-member creates an
+   * EDITOR membership so the assignee sees the project and can work in it.
+   * Existing rows keep their role (an upsert with a no-op update).
+   */
+  async ensureMember(
+    projectId: string,
+    userId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const client = tx ?? this.prisma;
+    const project = await client.project.findUnique({
+      where: { id: projectId },
+      select: { ownerId: true },
+    });
+    if (!project || project.ownerId === userId) return;
+    await client.projectMember.upsert({
+      where: { projectId_userId: { projectId, userId } },
+      update: {},
+      create: { projectId, userId, role: ProjectRole.EDITOR },
+    });
   }
 
   private async makeUniqueKey(name: string): Promise<string> {
@@ -88,11 +157,12 @@ export class ProjectsService {
         : [{ createdAt: 'desc' }, { id: 'asc' }],
       include: {
         _count: { select: { tasks: true } },
-        // Owner + explicit members power the "people" avatar stack on the
-        // project cards. Implicit task-assignees are intentionally not loaded
-        // here — that would require scanning every task per project.
+        // Owner + members power the "people" avatar stack on project cards.
         owner: USER_LITE,
-        members: { ...USER_LITE, orderBy: { name: 'asc' } },
+        memberships: {
+          include: { user: USER_LITE },
+          orderBy: { user: { name: 'asc' } },
+        },
       },
       take: limit + 1,
       ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
@@ -106,8 +176,9 @@ export class ProjectsService {
     });
     const doneByProject = new Map(done.map((d) => [d.projectId, d._count._all]));
     return {
-      items: page.items.map((p) => ({
+      items: page.items.map(({ memberships, ...p }) => ({
         ...p,
+        members: memberships.map((m) => m.user),
         stats: {
           total: p._count.tasks,
           done: doneByProject.get(p.id) ?? 0,
@@ -117,7 +188,7 @@ export class ProjectsService {
     };
   }
 
-  /** Owner-only: project lifecycle (rename / close / reopen / delete). */
+  /** Owner-only: project deletion (and anything not delegated to ADMINs). */
   async getOwned(id: string, userId: string) {
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) throw new NotFoundException('Project not found');
@@ -125,31 +196,22 @@ export class ProjectsService {
     return project;
   }
 
-  /** Member-access: owner, explicit member, or any task-assignee in the project. */
+  /** Any role: returns the project plus the caller's effective role. */
   async getAccessible(id: string, userId: string) {
-    const project = await this.prisma.project.findUnique({
-      where: { id },
-      include: { members: { select: { id: true } } },
-    });
+    const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) throw new NotFoundException('Project not found');
+    let myRole: EffectiveRole | null = null;
     if (project.ownerId === userId) {
-      const { members: _m, ...rest } = project;
-      return rest;
+      myRole = 'OWNER';
+    } else {
+      const member = await this.prisma.projectMember.findUnique({
+        where: { projectId_userId: { projectId: id, userId } },
+        select: { role: true },
+      });
+      myRole = member?.role ?? null;
     }
-    if (project.members.some((m) => m.id === userId)) {
-      const { members: _m, ...rest } = project;
-      return rest;
-    }
-    const isAssignee = await this.prisma.task.findFirst({
-      where: {
-        projectId: id,
-        assignees: { some: { id: userId } },
-      },
-      select: { id: true },
-    });
-    if (!isAssignee) throw new ForbiddenException();
-    const { members: _m, ...rest } = project;
-    return rest;
+    if (!myRole) throw new ForbiddenException();
+    return { ...project, myRole };
   }
 
   async assertAccessible(id: string, userId: string): Promise<void> {
@@ -191,7 +253,7 @@ export class ProjectsService {
   }
 
   async update(id: string, userId: string, dto: UpdateProjectDto) {
-    await this.getOwned(id, userId);
+    await this.assertRole(id, userId, 'ADMIN');
     await this.assertNotClosed(id);
     return this.prisma.project.update({
       where: { id },
@@ -203,7 +265,9 @@ export class ProjectsService {
   }
 
   async close(id: string, userId: string) {
-    const project = await this.getOwned(id, userId);
+    await this.assertRole(id, userId, 'ADMIN');
+    const project = await this.prisma.project.findUnique({ where: { id } });
+    if (!project) throw new NotFoundException('Project not found');
     if (project.closedAt) {
       return project; // already closed, idempotent
     }
@@ -222,7 +286,7 @@ export class ProjectsService {
   }
 
   async reopen(id: string, userId: string) {
-    await this.getOwned(id, userId);
+    await this.assertRole(id, userId, 'ADMIN');
     return this.prisma.project.update({
       where: { id },
       data: { closedAt: null },
@@ -236,7 +300,7 @@ export class ProjectsService {
    *
    * Auto-reopen was intentionally removed: closed projects are immutable
    * (assertNotClosed in every mutation), so the only way to leave the closed
-   * state is through the explicit `reopen()` endpoint by the owner.
+   * state is through the explicit `reopen()` endpoint.
    *
    * Returns the transition kind so callers can decide whether to broadcast.
    */
@@ -269,48 +333,42 @@ export class ProjectsService {
 
   /**
    * Distinct user IDs that should be notified when a project's state changes:
-   * the owner plus every explicit member plus every distinct task assignee
-   * currently in the project.
+   * the owner plus every member (assignees are members by the auto-add rule).
    */
   async memberIds(projectId: string): Promise<string[]> {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       select: {
         ownerId: true,
-        members: { select: { id: true } },
-        tasks: {
-          where: { assignees: { some: {} } },
-          select: { assignees: { select: { id: true } } },
-        },
+        memberships: { select: { userId: true } },
       },
     });
     if (!project) return [];
     const ids = new Set<string>([project.ownerId]);
-    for (const m of project.members) ids.add(m.id);
-    for (const t of project.tasks) {
-      for (const a of t.assignees) ids.add(a.id);
-    }
+    for (const m of project.memberships) ids.add(m.userId);
     return Array.from(ids);
   }
 
-  // ----------------- Explicit project members management -----------------
+  // ----------------- Members & roles management -----------------
 
   async listMembers(projectId: string, userId: string) {
     await this.assertAccessible(projectId, userId);
-    return this.prisma.user.findMany({
-      where: { memberProjects: { some: { id: projectId } } },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        avatarColor: true,
-      },
-      orderBy: { name: 'asc' },
+    const rows = await this.prisma.projectMember.findMany({
+      where: { projectId },
+      include: { user: USER_LITE },
+      orderBy: { user: { name: 'asc' } },
     });
+    return rows.map((m) => ({ ...m.user, role: m.role }));
   }
 
-  async addMember(projectId: string, userId: string, memberId: string) {
-    const project = await this.getOwned(projectId, userId);
+  async addMember(
+    projectId: string,
+    userId: string,
+    memberId: string,
+    role: ProjectRole = ProjectRole.EDITOR,
+  ) {
+    const project = await this.getAccessible(projectId, userId);
+    if (!roleAtLeast(project.myRole, 'ADMIN')) throw new ForbiddenException();
     await this.assertNotClosed(projectId);
     if (memberId === project.ownerId) {
       throw new BadRequestException('Owner is already a member by default');
@@ -320,26 +378,45 @@ export class ProjectsService {
       select: { id: true },
     });
     if (!user) throw new NotFoundException('User not found');
-    await this.prisma.project.update({
-      where: { id: projectId },
-      data: { members: { connect: { id: memberId } } },
+    await this.prisma.projectMember.upsert({
+      where: { projectId_userId: { projectId, userId: memberId } },
+      update: { role },
+      create: { projectId, userId: memberId, role },
     });
     // The new member's sidebar/projects list (and everyone else's view) should
-    // reflect the change live, without a manual reload. memberIds now includes
-    // the freshly connected member.
+    // reflect the change live, without a manual reload.
+    this.realtime.emitProjectsChangedForUsers(await this.memberIds(projectId));
+    return this.listMembers(projectId, userId);
+  }
+
+  async updateMemberRole(
+    projectId: string,
+    userId: string,
+    memberId: string,
+    role: ProjectRole,
+  ) {
+    await this.assertRole(projectId, userId, 'ADMIN');
+    const existing = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId: memberId } },
+      select: { userId: true },
+    });
+    if (!existing) throw new NotFoundException('Member not found');
+    await this.prisma.projectMember.update({
+      where: { projectId_userId: { projectId, userId: memberId } },
+      data: { role },
+    });
     this.realtime.emitProjectsChangedForUsers(await this.memberIds(projectId));
     return this.listMembers(projectId, userId);
   }
 
   async removeMember(projectId: string, userId: string, memberId: string) {
-    await this.getOwned(projectId, userId);
+    await this.assertRole(projectId, userId, 'ADMIN');
     await this.assertNotClosed(projectId);
-    await this.prisma.project.update({
-      where: { id: projectId },
-      data: { members: { disconnect: { id: memberId } } },
+    await this.prisma.projectMember.deleteMany({
+      where: { projectId, userId: memberId },
     });
     // Notify the remaining participants plus the removed user, whose sidebar
-    // should drop the project (unless they remain an implicit task-assignee).
+    // should drop the project.
     this.realtime.emitProjectsChangedForUsers([
       ...(await this.memberIds(projectId)),
       memberId,

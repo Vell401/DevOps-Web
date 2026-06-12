@@ -156,6 +156,12 @@ export class RealtimeGateway
       .emit('comment-added', { taskId, comment });
   }
 
+  emitCommentUpdated(projectId: string, taskId: string, comment: unknown) {
+    this.server
+      .to(roomFor(projectId))
+      .emit('comment-updated', { taskId, comment });
+  }
+
   emitCommentDeleted(projectId: string, taskId: string, commentId: string) {
     this.server
       .to(roomFor(projectId))

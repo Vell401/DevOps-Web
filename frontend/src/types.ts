@@ -39,6 +39,7 @@ export interface User {
   email: string;
   name: string;
   avatarColor?: string;
+  avatarKey?: string | null;
   isAdmin?: boolean;
   createdAt: string;
 }
@@ -103,6 +104,16 @@ export interface UserLite {
   name: string;
   email: string;
   avatarColor?: string;
+  /** Set when the user uploaded a profile photo (cache-busts on re-upload). */
+  avatarKey?: string | null;
+}
+
+export type ProjectRole = 'VIEWER' | 'EDITOR' | 'ADMIN';
+/** Effective role: ownership outranks every member role. */
+export type EffectiveRole = ProjectRole | 'OWNER';
+
+export interface ProjectMemberInfo extends UserLite {
+  role: ProjectRole;
 }
 
 export interface Project {
@@ -119,6 +130,8 @@ export interface Project {
   // Present on the list endpoint (GET /projects); omitted by GET /projects/:id.
   owner?: UserLite;
   members?: UserLite[];
+  // Present on GET /projects/:id — the caller's effective role.
+  myRole?: EffectiveRole;
 }
 
 export interface Label {
@@ -162,6 +175,7 @@ export interface Comment {
   taskId: string;
   authorId: string;
   author?: UserLite;
+  attachments?: Attachment[];
   createdAt: string;
   updatedAt: string;
 }
@@ -169,6 +183,8 @@ export interface Comment {
 export interface Attachment {
   id: string;
   taskId: string;
+  /** Set when the file was attached via a comment (renders inline there). */
+  commentId?: string | null;
   uploaderId: string;
   uploader?: UserLite;
   key: string;
@@ -208,7 +224,11 @@ export interface Paginated<T> {
   nextCursor: string | null;
 }
 
-export type AppNotificationType = 'MENTIONED';
+export type AppNotificationType =
+  | 'MENTIONED'
+  | 'ASSIGNED'
+  | 'TASK_STATUS_CHANGED'
+  | 'DUE_SOON';
 
 /** In-app notification ("X mentioned you in a comment on PRJ-12"). */
 export interface AppNotification {

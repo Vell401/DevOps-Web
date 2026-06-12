@@ -190,6 +190,8 @@ function PeopleRow({
           size="sm"
           title={isOwner ? `${user.name} · owner` : user.name}
           className={cn(isOwner && 'ring-2 ring-blurple/70')}
+          userId={user.id}
+          avatarKey={user.avatarKey}
         />
       ))}
       {overflow > 0 && (

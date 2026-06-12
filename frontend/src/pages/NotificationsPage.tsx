@@ -14,6 +14,19 @@ import { cn } from '../lib/cn';
 
 const PREVIEW_LENGTH = 180;
 
+function verbOf(type: AppNotification['type']): string {
+  switch (type) {
+    case 'ASSIGNED':
+      return 'assigned you to';
+    case 'TASK_STATUS_CHANGED':
+      return 'changed the status of';
+    case 'DUE_SOON':
+      return '';
+    default:
+      return 'mentioned you in';
+  }
+}
+
 export function NotificationsPage() {
   const { refreshUnread } = useOutletContext<LayoutContext>();
   const [items, setItems] = useState<AppNotification[]>([]);
@@ -112,7 +125,7 @@ export function NotificationsPage() {
               Notifications
             </h1>
             <p className="mt-1 text-sm text-ink-muted">
-              Mentions addressed to you, newest first.
+              Mentions, assignments, status changes and due dates — newest first.
             </p>
           </div>
 
@@ -124,8 +137,8 @@ export function NotificationsPage() {
 
           {!loading && items.length === 0 && (
             <p className="rounded-lg bg-surface p-6 text-center text-sm text-ink-muted shadow-card">
-              Nothing here yet. You’ll see a notification when someone mentions
-              you in a comment.
+              Nothing here yet. You’ll get notified about mentions, new
+              assignments, status changes and upcoming deadlines.
             </p>
           )}
 
@@ -151,18 +164,23 @@ export function NotificationsPage() {
                     name={n.actor?.name ?? '?'}
                     color={n.actor?.avatarColor}
                     size="sm"
+                    userId={n.actor?.id}
+                    avatarKey={n.actor?.avatarKey}
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm leading-snug">
                       <span className={cn('font-medium', n.readAt ? 'text-ink-muted' : 'text-ink')}>
-                        {n.actor?.name ?? 'Someone'}
+                        {n.type === 'DUE_SOON' ? 'Task' : n.actor?.name ?? 'Someone'}
                       </span>{' '}
-                      <span className="text-ink-muted">mentioned you in</span>{' '}
+                      <span className="text-ink-muted">{verbOf(n.type)}</span>{' '}
                       <span className={cn('font-mono text-[12px]', n.readAt ? 'text-ink-muted' : 'text-ink')}>
                         {n.task?.project
                           ? `${n.task.project.key}-${n.task.number}`
                           : 'a deleted task'}
                       </span>
+                      {n.type === 'DUE_SOON' && (
+                        <span className="text-ink-muted"> is due within 24 hours</span>
+                      )}
                       {n.task && (
                         <span className="text-ink-muted"> · {n.task.title}</span>
                       )}

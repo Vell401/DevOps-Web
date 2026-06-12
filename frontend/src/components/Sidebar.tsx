@@ -90,6 +90,7 @@ export function Sidebar({ onCreateProject, refreshKey, unreadNotifications }: Pr
       <nav className="flex-1 overflow-y-auto px-2 scrollbar-thin">
         <NavSection>
           <NavLinkItem to="/projects" icon={<Icon.Layers size={14} />} label="All projects" end />
+          <NavLinkItem to="/my-tasks" icon={<Icon.Check size={14} />} label="My tasks" />
           <NavLinkItem to="/activity" icon={<Icon.Activity size={14} />} label="Activity" />
           {user?.isAdmin && <AdminNavSection />}
         </NavSection>
@@ -181,7 +182,12 @@ export function Sidebar({ onCreateProject, refreshKey, unreadNotifications }: Pr
             className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left transition hover:opacity-90"
             title="View profile"
           >
-            <Avatar name={user?.name ?? '?'} color={(user as { avatarColor?: string })?.avatarColor} />
+            <Avatar
+              name={user?.name ?? '?'}
+              color={user?.avatarColor}
+              userId={user?.id}
+              avatarKey={user?.avatarKey}
+            />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium text-ink">{user?.name}</div>
               <div className="truncate text-[11px] text-ink-subtle">{user?.email}</div>

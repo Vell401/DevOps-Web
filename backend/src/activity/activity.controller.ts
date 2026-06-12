@@ -32,24 +32,11 @@ export class ActivityController {
   private async assertTaskAccess(taskId: string, userId: string): Promise<void> {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
-      select: {
-        projectId: true,
-        project: {
-          select: { ownerId: true, members: { select: { id: true } } },
-        },
-      },
+      select: { projectId: true },
     });
     if (!task) throw new NotFoundException('Task not found');
-    if (task.project.ownerId === userId) return;
-    if (task.project.members.some((m) => m.id === userId)) return;
-    const assignedSomewhere = await this.prisma.task.findFirst({
-      where: {
-        projectId: task.projectId,
-        assignees: { some: { id: userId } },
-      },
-      select: { id: true },
-    });
-    if (!assignedSomewhere) throw new ForbiddenException();
+    const role = await this.projects.roleIn(task.projectId, userId);
+    if (!role) throw new ForbiddenException();
   }
 
   @Get('tasks/:taskId/activity')
