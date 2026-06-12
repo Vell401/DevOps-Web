@@ -1,0 +1,4 @@
+# Extra deps on top of the locustio/locust base image.
+# python-socketio client + a websocket transport for the RealtimeUser.
+python-socketio[client]==5.11.4
+websocket-client==1.8.0

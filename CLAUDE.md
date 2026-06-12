@@ -39,8 +39,11 @@ backend/    NestJS API — src/ modules (auth, users, projects, tasks, comments,
 frontend/   React SPA — src/ (pages, components, api client, auth context), nginx.conf, Dockerfile
 deploy/     edge.conf — production reverse-proxy config (HTTP + WebSocket upgrade)
 .github/    workflows: ci.yml (PRs), dev-cd.yml (push to dev), prod-cd.yml (push to main)
+loadtest/   k6-free load testing — Locust generator (locustfile.py, Dockerfile)
+            + big-data seeder (backend/prisma/seed-bigdata.ts)
 docker-compose.yml        local dev stack (builds from source)
 docker-compose.prod.yml   prod stack (pulls images from Docker Hub)
+docker-compose.loadtest.yml  isolated load-test stack (own DB/MinIO + Locust)
 Makefile, .env.example
 ```
 
