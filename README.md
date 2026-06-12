@@ -56,10 +56,9 @@ limiting (`@nest-lab/throttler-storage-redis`), Socket.IO Redis-адаптер
   interceptor'ом, автоматически обновляющим access-токен по ответу 401.
   Обновления в реальном времени поступают по Socket.IO (`/api/socket.io`).
 - **БД** — Prisma как source of truth (`backend/prisma/schema.prisma`). Сущности:
-  `User`, `Project`, `Task`, `Label`, `Comment`, `Activity`, `Attachment`,
-  `Notification`, `RefreshToken`, а
-  также связующие таблицы many-to-many (исполнители задач, участники проектов,
-  лейблы задач).
+  `User`, `Project`, `ProjectMember` (роль участника), `Task`, `Label`,
+  `Comment`, `Activity`, `Attachment`, `Notification`, `RefreshToken`, а также
+  связующие таблицы many-to-many (исполнители задач, лейблы задач).
 - **Прод** — образы собираются в CI и публикуются в Docker Hub; на сервере их
   разворачивает `docker-compose.prod.yml` за edge-nginx (`deploy/edge.conf`),
   который дополнительно проксирует WebSocket-соединения.
@@ -68,14 +67,20 @@ limiting (`@nest-lab/throttler-storage-redis`), Socket.IO Redis-адаптер
 
 - **Администратор** (`User.isAdmin`) — доступ к панели `/admin` и управлению
   пользователями.
-- **Владелец проекта** (`Project.ownerId`) — полный контроль над проектом:
-  переименование, закрытие/переоткрытие, управление участниками и лейблами,
-  любые операции с задачами.
-- **Участник** — явно добавленный участник проекта либо исполнитель хотя бы
-  одной задачи. Видит проект, меняет статус задач, комментирует.
+- **Владелец проекта** (`Project.ownerId`) — всё, что может ADMIN, плюс
+  удаление проекта. Владелец не является строкой участника.
+- **Роли участников** (`ProjectMember.role`):
+  - `VIEWER` — читает проект и комментирует (включая @-упоминания), но не
+    меняет задачи и не загружает файлы;
+  - `EDITOR` — роль по умолчанию: создаёт и редактирует задачи (все поля),
+    управляет лейблами, загружает файлы;
+  - `ADMIN` — дополнительно управляет участниками и ролями, переименовывает,
+    закрывает/переоткрывает проект, удаляет задачи и модерирует комментарии.
+- Назначение исполнителем не-участника **автоматически добавляет** его в
+  проект с ролью `EDITOR`.
 
 Закрытый проект (`Project.closedAt`) доступен только для чтения: любые изменения
-отклоняются до его переоткрытия владельцем.
+отклоняются до его переоткрытия владельцем или ADMIN'ом.
 
 ### Структура репозитория
 
@@ -190,7 +195,9 @@ npx prisma migrate dev --name <короткое-описание>
 | GET, POST | `/projects/:projectId/tasks` | Список / создать задачу | Bearer |
 | GET, PATCH, DELETE | `/tasks/:id` | Получить / изменить / удалить задачу | Bearer |
 | GET | `/tasks/:id/activity` | История изменений задачи | Bearer |
-| GET, POST | `/tasks/:taskId/comments` | Список / добавить комментарий | Bearer |
+| GET | `/tasks/mine` | Мои открытые задачи по всем проектам (дедлайн первым) | Bearer |
+| GET, POST | `/tasks/:taskId/comments` | Список / добавить комментарий (упоминания, вложения) | Bearer |
+| PATCH | `/comments/:id` | Редактировать комментарий (только автор) | Bearer |
 | DELETE | `/comments/:id` | Удалить комментарий (автор или владелец проекта) | Bearer |
 | GET, POST | `/tasks/:taskId/attachments` | Вложения задачи: список / загрузить (multipart) | Bearer |
 | GET | `/attachments/:id` | Получить/скачать файл вложения | Bearer |
@@ -198,7 +205,10 @@ npx prisma migrate dev --name <короткое-описание>
 | GET, POST | `/projects/:projectId/labels` | Лейблы проекта: список / создать | Bearer |
 | PATCH, DELETE | `/labels/:id` | Изменить / удалить лейбл | Bearer (владелец) |
 | GET | `/activity` | Глобальная лента активности (inbox) | Bearer |
-| GET | `/notifications` | Уведомления пользователя (упоминания), пагинация | Bearer |
+| PATCH | `/projects/:id/members/:memberId` | Сменить роль участника | Bearer (ADMIN+) |
+| POST, DELETE | `/users/me/avatar` | Загрузить / удалить фото профиля | Bearer |
+| GET | `/users/:id/avatar` | Фото профиля пользователя | Bearer |
+| GET | `/notifications` | Уведомления (упоминания, назначения, статусы, дедлайны) | Bearer |
 | GET | `/notifications/unread-count` | Число непрочитанных уведомлений | Bearer |
 | POST | `/notifications/read`, `/notifications/read-all` | Отметить прочитанными | Bearer |
 | GET | `/admin/stats` | Статистика для админ-дашборда | Bearer + Admin |

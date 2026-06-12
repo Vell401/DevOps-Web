@@ -23,7 +23,9 @@ via a self-hosted GitHub Actions runner.
   accessed with `@aws-sdk/client-s3`, uploads via `multer`. The backend proxies
   up/downloads — MinIO is never exposed to clients. Same code works against real
   AWS S3 by changing `S3_ENDPOINT` / credentials.
-- **Auth:** JWT access + rotating refresh, bcrypt password hashing.
+- **Auth:** JWT access + rotating refresh, bcrypt password hashing. Per-project
+  roles: owner > ADMIN > EDITOR (default; auto-assigned to task assignees) >
+  VIEWER — enforced via `ProjectsService.roleIn/assertRole`.
 - **Tests:** Jest (backend), Vitest + React Testing Library (frontend).
 - **Infra:** Docker (multi-stage), nginx reverse proxy in prod, GitHub Actions CI/CD.
 

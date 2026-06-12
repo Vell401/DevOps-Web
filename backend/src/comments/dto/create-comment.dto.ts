@@ -25,4 +25,28 @@ export class CreateCommentDto {
   @ArrayMaxSize(20)
   @IsUUID(undefined, { each: true })
   mentions?: string[];
+
+  /**
+   * Attachments staged in the composer (already uploaded to the task via the
+   * regular upload endpoint) that should render inline inside this comment.
+   * Validated server-side: same task, uploaded by the author, not yet linked.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsUUID(undefined, { each: true })
+  attachmentIds?: string[];
+}
+
+export class UpdateCommentDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  body!: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsUUID(undefined, { each: true })
+  mentions?: string[];
 }

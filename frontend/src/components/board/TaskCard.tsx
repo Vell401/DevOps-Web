@@ -9,6 +9,7 @@ import { cn } from '../../lib/cn';
 interface Props {
   task: Task;
   projectKey: string;
+  draggable?: boolean;
   onClick: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -18,6 +19,7 @@ interface Props {
 export function TaskCard({
   task,
   projectKey,
+  draggable = true,
   onClick,
   onDragStart,
   onDragEnd,
@@ -28,12 +30,13 @@ export function TaskCard({
 
   return (
     <article
-      draggable
+      draggable={draggable}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onClick={onClick}
       className={cn(
-        'group cursor-grab rounded-md border border-line bg-surface p-3 text-left shadow-card transition hover:border-ink-muted',
+        'group rounded-md border border-line bg-surface p-3 text-left shadow-card transition hover:border-ink-muted',
+        draggable ? 'cursor-grab' : 'cursor-pointer',
         dragging && 'opacity-40',
       )}
     >

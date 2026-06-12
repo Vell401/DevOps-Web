@@ -38,7 +38,15 @@ export function Layout() {
         n.task?.project && n.task
           ? `${n.task.project.key}-${n.task.number}`
           : 'a task';
-      toast.push(`${who} mentioned you in ${where}`);
+      const text =
+        n.type === 'ASSIGNED'
+          ? `${who} assigned you to ${where}`
+          : n.type === 'TASK_STATUS_CHANGED'
+            ? `${who} changed the status of ${where}`
+            : n.type === 'DUE_SOON'
+              ? `${where} is due within 24 hours`
+              : `${who} mentioned you in ${where}`;
+      toast.push(text);
     },
     [toast],
   );

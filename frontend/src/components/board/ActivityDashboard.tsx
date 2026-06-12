@@ -284,7 +284,7 @@ function ActorFilter({
                 onChange(u.id);
                 close();
               }}
-              icon={<Avatar name={u.name} color={u.avatarColor} size="xs" />}
+              icon={<Avatar name={u.name} color={u.avatarColor} size="xs" userId={u.id} avatarKey={u.avatarKey} />}
             >
               {u.name}
             </PopoverItem>
