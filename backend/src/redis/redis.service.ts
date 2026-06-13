@@ -35,6 +35,37 @@ export class RedisService implements OnModuleDestroy {
     return this.client;
   }
 
+  /**
+   * Live server stats for the admin dashboard, parsed from `INFO`. Returns
+   * null when Redis is configured but unreachable (caller maps that to "down").
+   */
+  async stats(): Promise<{
+    usedMemoryBytes: number;
+    keys: number;
+    version: string;
+    uptimeSec: number;
+    connectedClients: number;
+  } | null> {
+    if (!this.client) return null;
+    try {
+      const info = await this.client.info();
+      const keys = await this.client.dbsize();
+      const field = (k: string): string => {
+        const m = info.match(new RegExp(`^${k}:(.*)$`, 'm'));
+        return m ? m[1].trim() : '';
+      };
+      return {
+        usedMemoryBytes: parseInt(field('used_memory') || '0', 10),
+        keys,
+        version: field('redis_version') || 'unknown',
+        uptimeSec: parseInt(field('uptime_in_seconds') || '0', 10),
+        connectedClients: parseInt(field('connected_clients') || '0', 10),
+      };
+    } catch {
+      return null;
+    }
+  }
+
   /** Best-effort JSON read; null on miss, parse error, or no Redis. */
   async getJson<T>(key: string): Promise<T | null> {
     if (!this.client) return null;

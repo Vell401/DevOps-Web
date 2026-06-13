@@ -59,6 +59,9 @@ export interface LoginEvent {
   createdAt: string;
 }
 
+/** Health of a backing service on the metrics dashboard. */
+export type ServiceStatus = 'up' | 'down' | 'disabled';
+
 export interface AdminMetrics {
   realtime: { connections: number; onlineUsers: number };
   sessions: number;
@@ -73,11 +76,34 @@ export interface AdminMetrics {
     avgMs: number;
     perMinute: { minute: string; count: number }[];
   };
-  process: {
-    uptimeSec: number;
-    rssMb: number;
-    heapUsedMb: number;
-    nodeVersion: string;
+  services: {
+    backend: {
+      status: ServiceStatus;
+      uptimeSec: number;
+      version: string;
+      rssMb: number;
+      heapUsedMb: number;
+    };
+    postgres: {
+      status: ServiceStatus;
+      sizeBytes: number;
+      version: string;
+      uptimeSec: number;
+      connections: number;
+    };
+    redis: {
+      status: ServiceStatus;
+      usedMemoryBytes: number;
+      keys: number;
+      version: string;
+      uptimeSec: number;
+      connectedClients: number;
+    };
+    objectStorage: {
+      status: ServiceStatus;
+      sizeBytes: number;
+      fileCount: number;
+    };
   };
   build: {
     version: string;
