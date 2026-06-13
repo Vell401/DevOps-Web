@@ -88,4 +88,14 @@ export class S3StorageService implements OnModuleInit {
       new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
     );
   }
+
+  /** Reachability probe for the admin dashboard: true if the bucket responds. */
+  async ping(): Promise<boolean> {
+    try {
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }

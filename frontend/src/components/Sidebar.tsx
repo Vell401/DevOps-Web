@@ -441,7 +441,7 @@ function BrandMark() {
     <img
       src="/logo.png"
       alt="tracker"
-      className="h-11 w-11 shrink-0 object-contain"
+      className="h-16 w-16 shrink-0 object-contain"
     />
   );
 }
