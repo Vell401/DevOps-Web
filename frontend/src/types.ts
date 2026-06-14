@@ -105,6 +105,16 @@ export interface AdminMetrics {
       fileCount: number;
     };
   };
+  backup: {
+    status: 'ok' | 'failed' | 'stale' | 'unknown';
+    lastRunAt: string | null;
+    ageSec: number | null;
+    ok: boolean;
+    snapshots: number;
+    repoSizeBytes: number;
+    lastCheckOk: boolean | null;
+    error: string | null;
+  };
   build: {
     version: string;
     gitSha: string;

@@ -224,6 +224,16 @@ jobs:
           mkdir -p "$DEPLOY_DIR/deploy"
           cp docker-compose.prod.yml "$DEPLOY_DIR/docker-compose.prod.yml"
           cp deploy/edge.conf "$DEPLOY_DIR/deploy/edge.conf"
+          # Backup script + systemd unit references (the host restic timer runs
+          # the committed script; units are installed once by root — see BACKUPS.md).
+          cp deploy/tracker-backup.sh "$DEPLOY_DIR/deploy/tracker-backup.sh"
+          chmod +x "$DEPLOY_DIR/deploy/tracker-backup.sh"
+          mkdir -p "$DEPLOY_DIR/deploy/systemd"
+          cp deploy/systemd/tracker-backup.* "$DEPLOY_DIR/deploy/systemd/"
+          # Placeholder so the backend's read-only bind mount of status.json
+          # exists on the very first `up` (the root job overwrites it later).
+          mkdir -p "$DEPLOY_DIR/backups"
+          [ -e "$DEPLOY_DIR/backups/status.json" ] || echo '{}' > "$DEPLOY_DIR/backups/status.json"
 
       - name: Write .env from secrets
         run: |

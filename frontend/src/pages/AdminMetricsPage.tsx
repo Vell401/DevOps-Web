@@ -7,12 +7,29 @@ import { useToast } from '../ui/Toast';
 import { timeAgo } from '../lib/format';
 import {
   AdminTabs,
+  type CardStatus,
   SectionTitle,
   ServiceCard,
   StatCard,
   formatBytes,
   formatUptime,
 } from './admin-ui';
+
+type BackupStatus = AdminMetrics['backup']['status'];
+
+// Backup status → card tone + header wording.
+const BACKUP_TONE: Record<BackupStatus, CardStatus> = {
+  ok: 'up',
+  stale: 'warn',
+  failed: 'down',
+  unknown: 'disabled',
+};
+const BACKUP_LABEL: Record<BackupStatus, string> = {
+  ok: 'Healthy',
+  stale: 'Stale',
+  failed: 'Failed',
+  unknown: 'No data',
+};
 
 // Poll cadence for the live panel. The backend serves the realtime / slow-query
 // / rate-limit feeds from memory and caches the DB-derived figures, so polling
@@ -129,6 +146,45 @@ export function AdminMetricsPage() {
               <p className="mt-2 text-[11px] text-ink-subtle">
                 Service figures cached — as of {timeAgo(metrics.derivedAt)}.
               </p>
+            </section>
+
+            <section className="mb-8">
+              <SectionTitle>Backups</SectionTitle>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <ServiceCard
+                  name="restic backups"
+                  status={BACKUP_TONE[metrics.backup.status]}
+                  statusLabel={BACKUP_LABEL[metrics.backup.status]}
+                  primary={
+                    metrics.backup.lastRunAt ? timeAgo(metrics.backup.lastRunAt) : '—'
+                  }
+                  primaryLabel="last successful run"
+                  rows={[
+                    { label: 'Snapshots', value: metrics.backup.snapshots },
+                    { label: 'Repo size', value: formatBytes(metrics.backup.repoSizeBytes) },
+                    {
+                      label: 'Integrity check',
+                      value:
+                        metrics.backup.lastCheckOk === null
+                          ? '—'
+                          : metrics.backup.lastCheckOk
+                            ? 'passed'
+                            : 'failed',
+                    },
+                  ]}
+                />
+              </div>
+              {metrics.backup.status === 'unknown' && (
+                <p className="mt-2 text-[11px] text-ink-subtle">
+                  No backup status reported yet — the host backup job writes it on
+                  its first run.
+                </p>
+              )}
+              {metrics.backup.error && (
+                <p className="mt-2 text-[11px] text-status-dnd">
+                  Last error: {metrics.backup.error}
+                </p>
+              )}
             </section>
 
             <section className="mb-8">

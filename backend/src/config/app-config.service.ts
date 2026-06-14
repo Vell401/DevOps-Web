@@ -79,6 +79,12 @@ export class AppConfigService {
     return parseInt(this.config.get<string>('METRICS_CACHE_TTL_MS', '30000'), 10);
   }
 
+  /** Path to the JSON status file written by the host backup job (restic).
+   *  Read-only mounted into the backend so /admin/metrics can surface it. */
+  get backupStatusFile(): string {
+    return this.config.get<string>('BACKUP_STATUS_FILE', '/backup-status.json');
+  }
+
   // --- Build provenance (shown in the admin "Build info" panel) ---
   //
   // These come from build-args baked into the image. A *defined but empty* env

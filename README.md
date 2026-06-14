@@ -9,6 +9,7 @@ GitHub Actions runner.
 Связанные документы:
 - [RUNNING-WINDOWS.md](./RUNNING-WINDOWS.md) — локальный запуск на Windows + Docker.
 - [RUNNING-VM.md](./RUNNING-VM.md) — развёртывание на Linux-сервере и настройка CI/CD.
+- [BACKUPS.md](./BACKUPS.md) — резервное копирование (restic): установка, восстановление, эксплуатация.
 - [CLAUDE.md](./CLAUDE.md) — справочник для AI-агентов, работающих с репозиторием.
 
 ---
