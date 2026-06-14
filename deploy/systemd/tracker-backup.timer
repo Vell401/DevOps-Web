@@ -1,0 +1,11 @@
+# Runs the backup every 6 hours (00:15, 06:15, 12:15, 18:15 UTC).
+# Persistent=true catches up a run missed while the machine was off.
+[Unit]
+Description=Run Task Tracker backup every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

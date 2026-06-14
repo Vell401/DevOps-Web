@@ -3,7 +3,8 @@
 Working brief for an AI agent operating on this codebase. Human-facing docs:
 [README.md](./README.md) (architecture, API, env vars),
 [RUNNING-WINDOWS.md](./RUNNING-WINDOWS.md) (local Docker run),
-[RUNNING-VM.md](./RUNNING-VM.md) (server deploy + CI/CD + data ops).
+[RUNNING-VM.md](./RUNNING-VM.md) (server deploy + CI/CD + data ops),
+[BACKUPS.md](./BACKUPS.md) (host restic backups: setup, restore, ops).
 
 Read this fully before changing code — it captures the conventions and the
 non-obvious traps that the type-checker and tests won't catch for you.
@@ -151,7 +152,10 @@ prod they come from GitHub Secrets.
   `pg_database_size` + version/uptime/connections; Redis via `INFO`/`dbsize`; S3
   bucket reachability; attachment bytes) cached per `metricsCacheTtlMs` and
   shared across replicas via Redis. No Docker socket is used — each service
-  reports through its own protocol.
+  reports through its own protocol. The **Backups** card is fed by a
+  `status.json` written by the host restic job (`deploy/tracker-backup.sh`) and
+  read-only mounted into the backend (`BACKUP_STATUS_FILE`); the app only reads
+  it, never runs backups — see BACKUPS.md.
 
 - **Project closure.** A project auto-closes when all tasks are DONE and is
   read-only until explicitly reopened. Every mutating path calls

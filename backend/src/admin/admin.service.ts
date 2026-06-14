@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { readFile } from 'fs/promises';
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -14,6 +15,20 @@ import { AdminUpdateUserDto } from './dto/update-user.dto';
 
 /** State of a backing service shown on the dashboard. */
 type ServiceState = 'up' | 'down' | 'disabled';
+
+// A backup run older than this is flagged "stale" (schedule is every 6h, so
+// ~7h means at least one run was missed).
+const BACKUP_STALE_AFTER_MS = 7 * 60 * 60 * 1000;
+
+/** Shape of status.json written by the host restic backup job. */
+interface BackupStatusFile {
+  lastRun?: string;
+  ok?: boolean;
+  snapshots?: number;
+  repoSizeBytes?: number;
+  lastCheck?: { ok?: boolean; at?: string };
+  error?: string | null;
+}
 
 /**
  * DB / Redis / object-store figures, refreshed at most once per cache window
@@ -247,6 +262,7 @@ export class AdminService {
       slowQueryThresholdMs: this.cfg.slowQueryMs,
       rateLimit: this.metricsStore.rateLimitSnapshot(),
       http: this.metricsStore.httpSnapshot(),
+      backup: await this.backupStatus(),
       // Per-service health for the "Services" section. The backend reports its
       // own Node.js process gauges; the data stores report through their own
       // protocols (no Docker socket needed).
@@ -290,6 +306,45 @@ export class AdminService {
       // When the cached infra figures above were last refreshed, so the UI can
       // show "as of …" rather than implying they're real-time.
       derivedAt: infra.iso,
+    };
+  }
+
+  /**
+   * Backup health for the dashboard. The host restic job writes a status JSON
+   * (no secrets); we only read it. Missing/unreadable → "unknown"; a failed or
+   * too-old run is surfaced as failed/stale so the card doubles as a dead-man.
+   */
+  private async backupStatus() {
+    let raw: BackupStatusFile | null = null;
+    try {
+      raw = JSON.parse(await readFile(this.cfg.backupStatusFile, 'utf8'));
+    } catch {
+      raw = null;
+    }
+    if (!raw || !raw.lastRun) {
+      return {
+        status: 'unknown' as const,
+        lastRunAt: null,
+        ageSec: null,
+        ok: false,
+        snapshots: 0,
+        repoSizeBytes: 0,
+        lastCheckOk: null as boolean | null,
+        error: null as string | null,
+      };
+    }
+    const ageMs = Date.now() - new Date(raw.lastRun).getTime();
+    const status: 'ok' | 'failed' | 'stale' =
+      raw.ok === false ? 'failed' : ageMs > BACKUP_STALE_AFTER_MS ? 'stale' : 'ok';
+    return {
+      status,
+      lastRunAt: raw.lastRun,
+      ageSec: Math.max(0, Math.floor(ageMs / 1000)),
+      ok: raw.ok !== false,
+      snapshots: raw.snapshots ?? 0,
+      repoSizeBytes: raw.repoSizeBytes ?? 0,
+      lastCheckOk: raw.lastCheck?.ok ?? null,
+      error: raw.error ?? null,
     };
   }
 

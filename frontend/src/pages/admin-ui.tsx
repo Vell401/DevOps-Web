@@ -57,8 +57,12 @@ export function StatCard({
   );
 }
 
-const SERVICE_META: Record<ServiceStatus, { dot: string; text: string; label: string }> = {
+/** Visual tone of a card header. Adds `warn` (amber) on top of ServiceStatus. */
+export type CardStatus = ServiceStatus | 'warn';
+
+const SERVICE_META: Record<CardStatus, { dot: string; text: string; label: string }> = {
   up: { dot: 'bg-status-online', text: 'text-status-online', label: 'Operational' },
+  warn: { dot: 'bg-status-idle', text: 'text-status-idle', label: 'Warning' },
   down: { dot: 'bg-status-dnd', text: 'text-status-dnd', label: 'Unreachable' },
   disabled: { dot: 'bg-status-offline', text: 'text-ink-subtle', label: 'Disabled' },
 };
@@ -66,17 +70,20 @@ const SERVICE_META: Record<ServiceStatus, { dot: string; text: string; label: st
 /**
  * Card for one backing service: a status header (coloured dot + state), one
  * headline figure, and a list of secondary key/value rows. Used to build the
- * "Services" grid on the metrics page.
+ * "Services" grid on the metrics page. `statusLabel` overrides the default
+ * wording (e.g. "Stale" for a backup card).
  */
 export function ServiceCard({
   name,
   status,
+  statusLabel,
   primary,
   primaryLabel,
   rows,
 }: {
   name: string;
-  status: ServiceStatus;
+  status: CardStatus;
+  statusLabel?: string;
   primary?: string;
   primaryLabel?: string;
   rows: { label: string; value: string | number }[];
@@ -90,7 +97,7 @@ export function ServiceCard({
           <span className="text-sm font-medium text-ink">{name}</span>
         </div>
         <span className={cn('text-[11px] font-medium uppercase tracking-wide', meta.text)}>
-          {meta.label}
+          {statusLabel ?? meta.label}
         </span>
       </div>
 
