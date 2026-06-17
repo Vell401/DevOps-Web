@@ -6,12 +6,12 @@ import {
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { TasksService } from '../tasks/tasks.service';
-import { ProjectsService } from '../projects/projects.service';
+import { ProjectsService, roleAtLeast } from '../projects/projects.service';
 import { S3StorageService } from '../storage/s3-storage.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 const UPLOADER_LITE = {
-  select: { id: true, name: true, email: true, avatarColor: true },
+  select: { id: true, name: true, email: true, avatarColor: true, avatarKey: true },
 } as const;
 
 @Injectable()
@@ -34,9 +34,10 @@ export class AttachmentsService {
     });
   }
 
-  /** Upload: any project member/assignee can attach to a task they can see. */
+  /** Upload: EDITOR+ (viewers are read-only and cannot add files). */
   async create(taskId: string, userId: string, file: Express.Multer.File) {
     const task = await this.tasks.get(taskId, userId); // access check
+    await this.projects.assertRole(task.projectId, userId, 'EDITOR');
     await this.projects.assertNotClosed(task.projectId);
 
     const safeName = sanitizeName(file.originalname);
@@ -71,7 +72,7 @@ export class AttachmentsService {
     return { attachment: att, stream };
   }
 
-  /** Delete: uploader or project owner; blocked on closed projects. */
+  /** Delete: uploader or project ADMIN+; blocked on closed projects. */
   async remove(id: string, userId: string): Promise<void> {
     const att = await this.prisma.attachment.findUnique({
       where: { id },
@@ -80,16 +81,16 @@ export class AttachmentsService {
           select: {
             id: true,
             projectId: true,
-            project: { select: { ownerId: true } },
           },
         },
       },
     });
     if (!att) throw new NotFoundException('Attachment not found');
 
-    const isUploader = att.uploaderId === userId;
-    const isOwner = att.task.project.ownerId === userId;
-    if (!isUploader && !isOwner) throw new ForbiddenException();
+    if (att.uploaderId !== userId) {
+      const role = await this.projects.roleIn(att.task.projectId, userId);
+      if (!roleAtLeast(role, 'ADMIN')) throw new ForbiddenException();
+    }
     await this.projects.assertNotClosed(att.task.projectId);
 
     await this.prisma.attachment.delete({ where: { id } });

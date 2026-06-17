@@ -11,6 +11,7 @@ import { cn } from '../lib/cn';
 interface Props {
   onCreateProject: () => void;
   refreshKey: number;
+  unreadNotifications: number;
 }
 
 const CLOSED_EXPANDED_KEY = 'tracker.sidebar.closedExpanded';
@@ -23,7 +24,7 @@ function readClosedExpanded(): boolean {
   }
 }
 
-export function Sidebar({ onCreateProject, refreshKey }: Props) {
+export function Sidebar({ onCreateProject, refreshKey, unreadNotifications }: Props) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -89,6 +90,7 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
       <nav className="flex-1 overflow-y-auto px-2 scrollbar-thin">
         <NavSection>
           <NavLinkItem to="/projects" icon={<Icon.Layers size={14} />} label="All projects" end />
+          <NavLinkItem to="/my-tasks" icon={<Icon.Check size={14} />} label="My tasks" />
           <NavLinkItem to="/activity" icon={<Icon.Activity size={14} />} label="Activity" />
           {user?.isAdmin && <AdminNavSection />}
         </NavSection>
@@ -150,6 +152,29 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
         />
       </nav>
 
+      {/* Pinned above the profile: the notification inbox with unread badge. */}
+      <div className="px-2 pt-1">
+        <NavLink
+          to="/notifications"
+          className={({ isActive }) =>
+            cn(
+              'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition',
+              isActive
+                ? 'bg-surface-hover text-ink'
+                : 'text-ink-muted hover:bg-surface-hover/60 hover:text-ink',
+            )
+          }
+        >
+          <Icon.Bell size={14} />
+          <span>Notifications</span>
+          {unreadNotifications > 0 && (
+            <span className="ml-auto inline-flex h-4 min-w-[18px] items-center justify-center rounded-full bg-status-dnd px-1 text-[10px] font-semibold leading-none text-white">
+              {unreadNotifications > 99 ? '99+' : unreadNotifications}
+            </span>
+          )}
+        </NavLink>
+      </div>
+
       <div className="p-2.5">
         <div className="flex items-center gap-2 rounded-md bg-surface-deep px-2.5 py-2">
           <button
@@ -157,7 +182,12 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
             className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left transition hover:opacity-90"
             title="View profile"
           >
-            <Avatar name={user?.name ?? '?'} color={(user as { avatarColor?: string })?.avatarColor} />
+            <Avatar
+              name={user?.name ?? '?'}
+              color={user?.avatarColor}
+              userId={user?.id}
+              avatarKey={user?.avatarKey}
+            />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium text-ink">{user?.name}</div>
               <div className="truncate text-[11px] text-ink-subtle">{user?.email}</div>
@@ -411,7 +441,7 @@ function BrandMark() {
     <img
       src="/logo.png"
       alt="tracker"
-      className="h-11 w-11 shrink-0 object-contain"
+      className="h-[68px] w-[68px] shrink-0 object-contain"
     />
   );
 }

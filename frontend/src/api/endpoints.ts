@@ -6,6 +6,7 @@ import type {
   AdminMetrics,
   AdminStats,
   AdminUser,
+  AppNotification,
   Attachment,
   LoginEvent,
   Comment,
@@ -13,6 +14,8 @@ import type {
   LabelColor,
   Paginated,
   Project,
+  ProjectMemberInfo,
+  ProjectRole,
   Task,
   TaskPriority,
   TaskStatus,
@@ -84,11 +87,17 @@ export const projectsApi = {
     const { data } = await api.get<Paginated<Activity>>(`/projects/${id}/activity`);
     return data.items;
   },
-  listMembers: (id: string) => api.get<UserLite[]>(`/projects/${id}/members`),
-  addMember: (id: string, userId: string) =>
-    api.post<UserLite[]>(`/projects/${id}/members`, { userId }),
+  listMembers: (id: string) =>
+    api.get<ProjectMemberInfo[]>(`/projects/${id}/members`),
+  addMember: (id: string, userId: string, role?: ProjectRole) =>
+    api.post<ProjectMemberInfo[]>(`/projects/${id}/members`, {
+      userId,
+      ...(role ? { role } : {}),
+    }),
+  updateMemberRole: (id: string, memberId: string, role: ProjectRole) =>
+    api.patch<ProjectMemberInfo[]>(`/projects/${id}/members/${memberId}`, { role }),
   removeMember: (id: string, memberId: string) =>
-    api.delete<UserLite[]>(`/projects/${id}/members/${memberId}`),
+    api.delete<ProjectMemberInfo[]>(`/projects/${id}/members/${memberId}`),
 };
 
 export interface TaskFilters {
@@ -131,6 +140,14 @@ export const tasksApi = {
     });
   },
   get: (id: string) => api.get<Task>(`/tasks/${id}`),
+  /** All my open tasks across projects, soonest deadline first. */
+  mine: () =>
+    fetchAllPages<Task>(async (cursor) => {
+      const { data } = await api.get<Paginated<Task>>('/tasks/mine', {
+        params: cursor ? { cursor } : undefined,
+      });
+      return data;
+    }),
   create: (projectId: string, body: TaskBody) =>
     api.post<Task>(`/projects/${projectId}/tasks`, body),
   update: (id: string, body: TaskBody) => api.patch<Task>(`/tasks/${id}`, body),
@@ -144,9 +161,37 @@ export const tasksApi = {
 
 export const commentsApi = {
   list: (taskId: string) => api.get<Comment[]>(`/tasks/${taskId}/comments`),
-  create: (taskId: string, body: string) =>
-    api.post<Comment>(`/tasks/${taskId}/comments`, { body }),
+  /** `mentions` — ids of users picked via the @ autocomplete (notified server-side).
+   *  `attachmentIds` — staged uploads to render inline inside the comment. */
+  create: (taskId: string, body: string, mentions?: string[], attachmentIds?: string[]) =>
+    api.post<Comment>(`/tasks/${taskId}/comments`, {
+      body,
+      ...(mentions?.length ? { mentions } : {}),
+      ...(attachmentIds?.length ? { attachmentIds } : {}),
+    }),
+  update: (id: string, body: string, mentions?: string[]) =>
+    api.patch<Comment>(`/comments/${id}`, {
+      body,
+      ...(mentions?.length ? { mentions } : {}),
+    }),
   remove: (id: string) => api.delete(`/comments/${id}`),
+};
+
+export const notificationsApi = {
+  /** One page, newest first; pass the previous page's cursor to continue. */
+  list: async (cursor?: string) => {
+    const { data } = await api.get<Paginated<AppNotification>>('/notifications', {
+      params: cursor ? { cursor } : undefined,
+    });
+    return data;
+  },
+  unreadCount: async () => {
+    const { data } = await api.get<{ count: number }>('/notifications/unread-count');
+    return data.count;
+  },
+  markRead: (ids: string[]) =>
+    api.post<{ updated: number }>('/notifications/read', { ids }),
+  markAllRead: () => api.post<{ updated: number }>('/notifications/read-all'),
 };
 
 export const attachmentsApi = {
@@ -174,6 +219,12 @@ export const labelsApi = {
 
 export const usersApi = {
   list: () => api.get<UserLite[]>('/users'),
+  uploadAvatar: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post<User>('/users/me/avatar', fd);
+  },
+  removeAvatar: () => api.delete<User>('/users/me/avatar'),
 };
 
 export interface ActivityFilters {

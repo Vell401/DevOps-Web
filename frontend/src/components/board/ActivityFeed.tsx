@@ -40,6 +40,8 @@ export function ActivityFeed({
               color={ev.actor?.avatarColor}
               size="xs"
               className="mt-0.5"
+              userId={ev.actor?.id}
+              avatarKey={ev.actor?.avatarKey}
             />
             <div className="min-w-0 flex-1 text-xs text-ink">
               <p className="leading-relaxed">

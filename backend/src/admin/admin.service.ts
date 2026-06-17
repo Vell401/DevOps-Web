@@ -3,21 +3,61 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { readFile } from 'fs/promises';
 import * as bcrypt from 'bcrypt';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/app-config.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { RedisService } from '../redis/redis.service';
+import { S3StorageService } from '../storage/s3-storage.service';
 import { AdminUpdateUserDto } from './dto/update-user.dto';
 
-interface DerivedMetricsSnapshot {
+/** State of a backing service shown on the dashboard. */
+type ServiceState = 'up' | 'down' | 'disabled';
+
+// A backup run older than this is flagged "stale" (schedule is every 6h, so
+// ~7h means at least one run was missed).
+const BACKUP_STALE_AFTER_MS = 7 * 60 * 60 * 1000;
+
+/** Shape of status.json written by the host restic backup job. */
+interface BackupStatusFile {
+  lastRun?: string;
+  ok?: boolean;
+  snapshots?: number;
+  repoSizeBytes?: number;
+  lastCheck?: { ok?: boolean; at?: string };
+  error?: string | null;
+}
+
+/**
+ * DB / Redis / object-store figures, refreshed at most once per cache window
+ * (shared via Redis so N polling admins cost one probe set per window).
+ */
+interface InfraSnapshot {
   at: number;
   iso: string;
   storage: { totalBytes: number; fileCount: number };
   sessions: number;
+  database: {
+    ok: boolean;
+    sizeBytes: number;
+    version: string;
+    uptimeSec: number;
+    connections: number;
+  };
+  redis: {
+    state: ServiceState;
+    usedMemoryBytes: number;
+    keys: number;
+    version: string;
+    uptimeSec: number;
+    connectedClients: number;
+  };
+  objectStorageOk: boolean;
 }
 
-const DERIVED_CACHE_KEY = 'admin:metrics:derived';
+const INFRA_CACHE_KEY = 'admin:metrics:infra';
 
 @Injectable()
 export class AdminService {
@@ -26,12 +66,13 @@ export class AdminService {
     private readonly metricsStore: MetricsService,
     private readonly cfg: AppConfigService,
     private readonly redis: RedisService,
+    private readonly storage: S3StorageService,
   ) {}
 
-  // Process-local fallback for the DB-derived metrics snapshot, used when
-  // Redis is not configured. With Redis, the snapshot lives there instead so
-  // every replica (and every polling admin) shares a single cache window.
-  private derivedCache: DerivedMetricsSnapshot | null = null;
+  // Process-local fallback for the infra snapshot, used when Redis is not
+  // configured. With Redis, the snapshot lives there so every replica (and
+  // every polling admin) shares a single cache window.
+  private infraCache: InfraSnapshot | null = null;
 
   async listUsers() {
     const users = await this.prisma.user.findMany({
@@ -41,6 +82,7 @@ export class AdminService {
         email: true,
         name: true,
         avatarColor: true,
+        avatarKey: true,
         isAdmin: true,
         blocked: true,
         lastLoginAt: true,
@@ -122,6 +164,7 @@ export class AdminService {
           email: true,
           name: true,
           avatarColor: true,
+          avatarKey: true,
           isAdmin: true,
           blocked: true,
           lastLoginAt: true,
@@ -173,6 +216,7 @@ export class AdminService {
             email: true,
             name: true,
             avatarColor: true,
+            avatarKey: true,
             createdAt: true,
           },
         }),
@@ -206,23 +250,50 @@ export class AdminService {
    * `metricsCacheTtlMs`, so N admins polling cost at most one query per window.
    */
   async metrics() {
-    const derived = await this.derivedMetrics();
+    const infra = await this.infraMetrics();
     const mem = process.memoryUsage();
     const uptimeSec = Math.floor(process.uptime());
 
     return {
       realtime: this.metricsStore.realtime(),
-      sessions: derived.sessions,
-      storage: derived.storage,
+      sessions: infra.sessions,
+      storage: infra.storage,
       slowQueries: this.metricsStore.recentSlowQueries(),
       slowQueryThresholdMs: this.cfg.slowQueryMs,
       rateLimit: this.metricsStore.rateLimitSnapshot(),
       http: this.metricsStore.httpSnapshot(),
-      process: {
-        uptimeSec,
-        rssMb: Math.round(mem.rss / 1048576),
-        heapUsedMb: Math.round(mem.heapUsed / 1048576),
-        nodeVersion: process.version,
+      backup: await this.backupStatus(),
+      // Per-service health for the "Services" section. The backend reports its
+      // own Node.js process gauges; the data stores report through their own
+      // protocols (no Docker socket needed).
+      services: {
+        backend: {
+          status: 'up' as ServiceState,
+          uptimeSec,
+          version: process.version,
+          rssMb: Math.round(mem.rss / 1048576),
+          heapUsedMb: Math.round(mem.heapUsed / 1048576),
+        },
+        postgres: {
+          status: (infra.database.ok ? 'up' : 'down') as ServiceState,
+          sizeBytes: infra.database.sizeBytes,
+          version: infra.database.version,
+          uptimeSec: infra.database.uptimeSec,
+          connections: infra.database.connections,
+        },
+        redis: {
+          status: infra.redis.state,
+          usedMemoryBytes: infra.redis.usedMemoryBytes,
+          keys: infra.redis.keys,
+          version: infra.redis.version,
+          uptimeSec: infra.redis.uptimeSec,
+          connectedClients: infra.redis.connectedClients,
+        },
+        objectStorage: {
+          status: (infra.objectStorageOk ? 'up' : 'down') as ServiceState,
+          sizeBytes: infra.storage.totalBytes,
+          fileCount: infra.storage.fileCount,
+        },
       },
       build: {
         version: this.cfg.appVersion,
@@ -232,38 +303,77 @@ export class AdminService {
         // Process start derived from uptime — no extra state to track.
         startedAt: new Date(Date.now() - uptimeSec * 1000).toISOString(),
       },
-      // When the cached DB figures above were last refreshed, so the UI can
+      // When the cached infra figures above were last refreshed, so the UI can
       // show "as of …" rather than implying they're real-time.
-      derivedAt: derived.iso,
+      derivedAt: infra.iso,
     };
   }
 
-  /** Storage usage + active sessions, computed from the DB at most once per
-   *  cache window. The storage figure is summed from attachment rows rather
-   *  than scanning the object store. */
-  private async derivedMetrics(): Promise<DerivedMetricsSnapshot> {
+  /**
+   * Backup health for the dashboard. The host restic job writes a status JSON
+   * (no secrets); we only read it. Missing/unreadable → "unknown"; a failed or
+   * too-old run is surfaced as failed/stale so the card doubles as a dead-man.
+   */
+  private async backupStatus() {
+    let raw: BackupStatusFile | null = null;
+    try {
+      raw = JSON.parse(await readFile(this.cfg.backupStatusFile, 'utf8'));
+    } catch {
+      raw = null;
+    }
+    if (!raw || !raw.lastRun) {
+      return {
+        status: 'unknown' as const,
+        lastRunAt: null,
+        ageSec: null,
+        ok: false,
+        snapshots: 0,
+        repoSizeBytes: 0,
+        lastCheckOk: null as boolean | null,
+        error: null as string | null,
+      };
+    }
+    const ageMs = Date.now() - new Date(raw.lastRun).getTime();
+    const status: 'ok' | 'failed' | 'stale' =
+      raw.ok === false ? 'failed' : ageMs > BACKUP_STALE_AFTER_MS ? 'stale' : 'ok';
+    return {
+      status,
+      lastRunAt: raw.lastRun,
+      ageSec: Math.max(0, Math.floor(ageMs / 1000)),
+      ok: raw.ok !== false,
+      snapshots: raw.snapshots ?? 0,
+      repoSizeBytes: raw.repoSizeBytes ?? 0,
+      lastCheckOk: raw.lastCheck?.ok ?? null,
+      error: raw.error ?? null,
+    };
+  }
+
+  /** DB / Redis / object-store probes, computed at most once per cache window
+   *  and shared across replicas via Redis. */
+  private async infraMetrics(): Promise<InfraSnapshot> {
     const ttl = this.cfg.metricsCacheTtlMs;
     const now = Date.now();
 
     // Shared cache first (key expires via PX, the `at` check is a belt-and-
     // braces guard); fall back to the process-local copy without Redis.
-    const shared = await this.redis.getJson<DerivedMetricsSnapshot>(DERIVED_CACHE_KEY);
+    const shared = await this.redis.getJson<InfraSnapshot>(INFRA_CACHE_KEY);
     if (shared && now - shared.at < ttl) return shared;
-    if (this.derivedCache && now - this.derivedCache.at < ttl) {
-      return this.derivedCache;
+    if (this.infraCache && now - this.infraCache.at < ttl) {
+      return this.infraCache;
     }
 
-    const [storage, sessions] = await Promise.all([
+    const [storage, sessions, database, redis, objectStorageOk] = await Promise.all([
       this.prisma.attachment.aggregate({
         _sum: { size: true },
         _count: { _all: true },
       }),
-      this.prisma.refreshToken.count({
-        where: { expiresAt: { gt: new Date() } },
-      }),
+      this.prisma.refreshToken.count({ where: { expiresAt: { gt: new Date() } } }),
+      this.databaseStats(),
+      this.redisStats(),
+      this.storage.ping(),
     ]);
 
-    const snapshot: DerivedMetricsSnapshot = {
+    const snapshot: InfraSnapshot = {
       at: now,
       iso: new Date(now).toISOString(),
       storage: {
@@ -271,10 +381,64 @@ export class AdminService {
         fileCount: storage._count._all,
       },
       sessions,
+      database,
+      redis,
+      objectStorageOk,
     };
-    this.derivedCache = snapshot;
-    await this.redis.setJson(DERIVED_CACHE_KEY, snapshot, ttl);
+    this.infraCache = snapshot;
+    await this.redis.setJson(INFRA_CACHE_KEY, snapshot, ttl);
     return snapshot;
+  }
+
+  /** On-disk size, server version, uptime and live connection count of the
+   *  Postgres database. Returns ok:false if the probe query fails. */
+  private async databaseStats(): Promise<InfraSnapshot['database']> {
+    try {
+      const rows = await this.prisma.$queryRaw<
+        Array<{ size: number; version: string; uptime: number; connections: number }>
+      >(Prisma.sql`
+        SELECT pg_database_size(current_database())::float8 AS size,
+               current_setting('server_version') AS version,
+               EXTRACT(EPOCH FROM (now() - pg_postmaster_start_time()))::int AS uptime,
+               (SELECT count(*)::int FROM pg_stat_activity) AS connections
+      `);
+      const r = rows[0];
+      return {
+        ok: true,
+        sizeBytes: Math.round(r.size),
+        version: r.version,
+        uptimeSec: r.uptime,
+        connections: r.connections,
+      };
+    } catch {
+      return { ok: false, sizeBytes: 0, version: 'unknown', uptimeSec: 0, connections: 0 };
+    }
+  }
+
+  /** Redis memory / keys / version / uptime, or a disabled/down marker. */
+  private async redisStats(): Promise<InfraSnapshot['redis']> {
+    if (!this.redis.connection) {
+      return {
+        state: 'disabled',
+        usedMemoryBytes: 0,
+        keys: 0,
+        version: '—',
+        uptimeSec: 0,
+        connectedClients: 0,
+      };
+    }
+    const s = await this.redis.stats();
+    if (!s) {
+      return {
+        state: 'down',
+        usedMemoryBytes: 0,
+        keys: 0,
+        version: 'unknown',
+        uptimeSec: 0,
+        connectedClients: 0,
+      };
+    }
+    return { state: 'up', ...s };
   }
 
   /** Recent authentication attempts for one user (newest first). */

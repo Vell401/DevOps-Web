@@ -87,6 +87,10 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY must be set}
       S3_FORCE_PATH_STYLE: "true"
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-26214400}
+      # Read-only view of the host backup job's status file, surfaced on
+      # /admin/metrics. The file is written by the restic job on the host
+      # (see BACKUPS.md); the app only reads it and it carries no secrets.
+      BACKUP_STATUS_FILE: /backup-status.json
     depends_on:
       postgres:
         condition: service_healthy
@@ -94,6 +98,10 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    volumes:
+      # status.json must exist before first `up` (the setup step touches it);
+      # mounted read-only so a compromised app can't tamper with backup state.
+      - ./backups/status.json:/backup-status.json:ro
     expose:
       - "3000"
 

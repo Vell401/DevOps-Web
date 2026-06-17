@@ -156,6 +156,12 @@ export class RealtimeGateway
       .emit('comment-added', { taskId, comment });
   }
 
+  emitCommentUpdated(projectId: string, taskId: string, comment: unknown) {
+    this.server
+      .to(roomFor(projectId))
+      .emit('comment-updated', { taskId, comment });
+  }
+
   emitCommentDeleted(projectId: string, taskId: string, commentId: string) {
     this.server
       .to(roomFor(projectId))
@@ -172,6 +178,11 @@ export class RealtimeGateway
     this.server
       .to(roomFor(projectId))
       .emit('attachment-removed', { taskId, attachmentId });
+  }
+
+  /** Push an in-app notification (e.g. a comment mention) to one user. */
+  emitNotification(userId: string, notification: unknown) {
+    this.server.to(userRoom(userId)).emit('notification', notification);
   }
 
   /**

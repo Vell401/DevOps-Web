@@ -22,6 +22,7 @@ const ACTOR_SELECT = {
   name: true,
   email: true,
   avatarColor: true,
+  avatarKey: true,
 } as const;
 
 @Injectable()
@@ -78,8 +79,8 @@ export class ActivityService {
 
   /**
    * Global inbox feed: every event across all projects the user has access
-   * to (owner OR explicit member OR has at least one assigned task there).
-   * Optional filters: actorId, type, projectId.
+   * to (owner OR member of any role). Optional filters: actorId, type,
+   * projectId.
    */
   async listForUser(
     userId: string,
@@ -90,11 +91,7 @@ export class ActivityService {
     } & ActivityPageOpts = {},
   ) {
     const projectAccess: Prisma.ProjectWhereInput = {
-      OR: [
-        { ownerId: userId },
-        { members: { some: { id: userId } } },
-        { tasks: { some: { assignees: { some: { id: userId } } } } },
-      ],
+      OR: [{ ownerId: userId }, { memberships: { some: { userId } } }],
     };
     const where: Prisma.ActivityWhereInput = {
       task: opts.projectId

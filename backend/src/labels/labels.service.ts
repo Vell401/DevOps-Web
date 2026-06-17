@@ -25,9 +25,8 @@ export class LabelsService {
   }
 
   async create(projectId: string, userId: string, dto: CreateLabelDto) {
-    // Owner-only: members can attach existing labels via task update path,
-    // but only the owner manages the label list itself.
-    await this.projects.getOwned(projectId, userId);
+    // EDITOR+: label management is part of everyday task editing.
+    await this.projects.assertRole(projectId, userId, 'EDITOR');
     await this.projects.assertNotClosed(projectId);
     try {
       return await this.prisma.label.create({
@@ -54,7 +53,7 @@ export class LabelsService {
       select: { id: true, projectId: true },
     });
     if (!label) throw new NotFoundException('Label not found');
-    await this.projects.getOwned(label.projectId, userId);
+    await this.projects.assertRole(label.projectId, userId, 'EDITOR');
     await this.projects.assertNotClosed(label.projectId);
     return this.prisma.label.update({
       where: { id },
@@ -71,7 +70,7 @@ export class LabelsService {
       select: { id: true, projectId: true },
     });
     if (!label) throw new NotFoundException('Label not found');
-    await this.projects.getOwned(label.projectId, userId);
+    await this.projects.assertRole(label.projectId, userId, 'EDITOR');
     await this.projects.assertNotClosed(label.projectId);
     await this.prisma.label.delete({ where: { id } });
   }

@@ -16,7 +16,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
-import { AddMemberDto } from './dto/add-member.dto';
+import { AddMemberDto, UpdateMemberRoleDto } from './dto/add-member.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
 import { JwtAccessGuard } from '../auth/guards/jwt-access.guard';
 import { CurrentUser, AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -102,7 +102,17 @@ export class ProjectsController {
     @Body() dto: AddMemberDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.projects.addMember(id, user.userId, dto.userId);
+    return this.projects.addMember(id, user.userId, dto.userId, dto.role);
+  }
+
+  @Patch(':id/members/:memberId')
+  async updateMemberRole(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('memberId', ParseUUIDPipe) memberId: string,
+    @Body() dto: UpdateMemberRoleDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projects.updateMemberRole(id, user.userId, memberId, dto.role);
   }
 
   @Delete(':id/members/:memberId')

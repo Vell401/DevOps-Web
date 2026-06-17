@@ -53,68 +53,103 @@ enum ActivityType {
   COMMENT_ADDED
 }
 
-model User {
-  id             String         @id @default(uuid())
-  email          String         @unique
-  passwordHash   String
-  name           String
-  avatarColor    String         @default("gray")
-  isAdmin        Boolean        @default(false)
-  blocked        Boolean        @default(false)
-  lastLoginAt    DateTime?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+// Extensible on purpose: assignment / status-change notifications can be
+// added later without schema changes beyond a new enum value.
+enum NotificationType {
+  MENTIONED
+  ASSIGNED
+  TASK_STATUS_CHANGED
+  DUE_SOON
+}
 
-  projects       Project[]      @relation("ProjectOwner")
-  memberProjects Project[]      @relation("ProjectMembers")
-  assignedTasks  Task[]         @relation("TaskAssignees")
-  comments       Comment[]
-  activities     Activity[]
-  attachments    Attachment[]
-  refreshTokens  RefreshToken[]
-  loginEvents    LoginEvent[]
+// Per-project member roles. The owner is NOT a member row — ownership lives on
+// Project.ownerId and always outranks every role.
+enum ProjectRole {
+  VIEWER
+  EDITOR
+  ADMIN
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  avatarColor  String    @default("gray")
+  avatarKey    String? // object key of the uploaded profile photo in S3/MinIO
+  isAdmin      Boolean   @default(false)
+  blocked      Boolean   @default(false)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  projects          Project[]       @relation("ProjectOwner")
+  memberships       ProjectMember[]
+  assignedTasks     Task[]          @relation("TaskAssignees")
+  comments          Comment[]
+  activities        Activity[]
+  attachments       Attachment[]
+  refreshTokens     RefreshToken[]
+  loginEvents       LoginEvent[]
+  notifications     Notification[]  @relation("NotificationRecipient")
+  sentNotifications Notification[]  @relation("NotificationActor")
 }
 
 model Project {
-  id          String    @id @default(uuid())
-  key         String    @unique
+  id          String          @id @default(uuid())
+  key         String          @unique
   name        String
   description String?
   ownerId     String
-  owner       User      @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  members     User[]    @relation("ProjectMembers")
-  taskCounter Int       @default(0)
+  owner       User            @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  memberships ProjectMember[]
+  taskCounter Int             @default(0)
   closedAt    DateTime?
   tasks       Task[]
   labels      Label[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
   @@index([ownerId])
   @@index([closedAt])
 }
 
+// Explicit membership with a role. Assigning a task to a non-member
+// auto-creates an EDITOR row, so "access" is always: owner OR member row.
+model ProjectMember {
+  projectId String
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      ProjectRole @default(EDITOR)
+  createdAt DateTime    @default(now())
+
+  @@id([projectId, userId])
+  @@index([userId])
+}
+
 model Task {
-  id          String       @id @default(uuid())
-  number      Int
-  title       String
-  description String?
-  status      TaskStatus   @default(TODO)
-  priority    TaskPriority @default(MEDIUM)
-  position    Float        @default(0)
-  dueDate     DateTime?
-  projectId   String
-  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  assignees   User[]       @relation("TaskAssignees")
-  parentId    String?
-  parent      Task?        @relation("Subtasks", fields: [parentId], references: [id], onDelete: SetNull)
-  subtasks    Task[]       @relation("Subtasks")
-  comments    Comment[]
-  activities  Activity[]
-  attachments Attachment[]
-  labels      Label[]      @relation("TaskLabels")
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id            String         @id @default(uuid())
+  number        Int
+  title         String
+  description   String?
+  status        TaskStatus     @default(TODO)
+  priority      TaskPriority   @default(MEDIUM)
+  position      Float          @default(0)
+  dueDate       DateTime?
+  projectId     String
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignees     User[]         @relation("TaskAssignees")
+  parentId      String?
+  parent        Task?          @relation("Subtasks", fields: [parentId], references: [id], onDelete: SetNull)
+  subtasks      Task[]         @relation("Subtasks")
+  comments      Comment[]
+  activities    Activity[]
+  attachments   Attachment[]
+  labels        Label[]        @relation("TaskLabels")
+  notifications Notification[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   @@unique([projectId, number])
   @@index([projectId])
@@ -136,16 +171,41 @@ model Label {
 }
 
 model Comment {
-  id        String   @id @default(uuid())
-  body      String
-  taskId    String
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  authorId  String
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String         @id @default(uuid())
+  body          String
+  taskId        String
+  task          Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId      String
+  author        User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  notifications Notification[]
+  attachments   Attachment[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   @@index([taskId])
+}
+
+// In-app notification inbox. A row per recipient: "actor mentioned you in a
+// comment on task X". `readAt` doubles as the unread flag (null = unread).
+// Task/comment links cascade — when the source disappears, so does the
+// notification; the actor is kept nullable so deleting a user preserves the
+// recipient's history.
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actorId   String?
+  actor     User?            @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  type      NotificationType
+  taskId    String?
+  task      Task?            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  commentId String?
+  comment   Comment?         @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
 }
 
 model Activity {
@@ -169,6 +229,10 @@ model Attachment {
   task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   uploaderId String
   uploader   User     @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  // Set when the file was attached via a comment; it still belongs to the task
+  // (and shows in the Files tab), but renders inline inside that comment.
+  commentId  String?
+  comment    Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
   key        String   @unique // object key in the S3/MinIO bucket
   filename   String // original client filename
   mimeType   String
@@ -177,6 +241,7 @@ model Attachment {
 
   @@index([taskId])
   @@index([uploaderId])
+  @@index([commentId])
 }
 
 model RefreshToken {

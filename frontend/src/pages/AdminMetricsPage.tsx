@@ -5,7 +5,31 @@ import { Topbar } from '../components/Topbar';
 import { Spinner } from '../ui/Spinner';
 import { useToast } from '../ui/Toast';
 import { timeAgo } from '../lib/format';
-import { AdminTabs, SectionTitle, StatCard, formatBytes } from './admin-ui';
+import {
+  AdminTabs,
+  type CardStatus,
+  SectionTitle,
+  ServiceCard,
+  StatCard,
+  formatBytes,
+  formatUptime,
+} from './admin-ui';
+
+type BackupStatus = AdminMetrics['backup']['status'];
+
+// Backup status → card tone + header wording.
+const BACKUP_TONE: Record<BackupStatus, CardStatus> = {
+  ok: 'up',
+  stale: 'warn',
+  failed: 'down',
+  unknown: 'disabled',
+};
+const BACKUP_LABEL: Record<BackupStatus, string> = {
+  ok: 'Healthy',
+  stale: 'Stale',
+  failed: 'Failed',
+  unknown: 'No data',
+};
 
 // Poll cadence for the live panel. The backend serves the realtime / slow-query
 // / rate-limit feeds from memory and caches the DB-derived figures, so polling
@@ -69,8 +93,103 @@ export function AdminMetricsPage() {
         {metrics && (
           <>
             <section className="mb-8">
+              <SectionTitle>Services</SectionTitle>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <ServiceCard
+                  name="Backend · API"
+                  status={metrics.services.backend.status}
+                  primary={`${metrics.services.backend.rssMb} MB`}
+                  primaryLabel="resident memory (RSS)"
+                  rows={[
+                    { label: 'Heap (V8) used', value: `${metrics.services.backend.heapUsedMb} MB` },
+                    { label: 'Uptime', value: formatUptime(metrics.services.backend.uptimeSec) },
+                    { label: 'Node', value: metrics.services.backend.version },
+                  ]}
+                />
+                <ServiceCard
+                  name="PostgreSQL"
+                  status={metrics.services.postgres.status}
+                  primary={formatBytes(metrics.services.postgres.sizeBytes)}
+                  primaryLabel="database on disk"
+                  rows={[
+                    { label: 'Connections', value: metrics.services.postgres.connections },
+                    { label: 'Uptime', value: formatUptime(metrics.services.postgres.uptimeSec) },
+                    { label: 'Version', value: metrics.services.postgres.version },
+                  ]}
+                />
+                <ServiceCard
+                  name="Redis"
+                  status={metrics.services.redis.status}
+                  primary={
+                    metrics.services.redis.status === 'disabled'
+                      ? '—'
+                      : formatBytes(metrics.services.redis.usedMemoryBytes)
+                  }
+                  primaryLabel="memory in use"
+                  rows={[
+                    { label: 'Keys', value: metrics.services.redis.keys },
+                    { label: 'Clients', value: metrics.services.redis.connectedClients },
+                    { label: 'Uptime', value: formatUptime(metrics.services.redis.uptimeSec) },
+                    { label: 'Version', value: metrics.services.redis.version },
+                  ]}
+                />
+                <ServiceCard
+                  name="Object storage · S3"
+                  status={metrics.services.objectStorage.status}
+                  primary={formatBytes(metrics.services.objectStorage.sizeBytes)}
+                  primaryLabel="attachments stored"
+                  rows={[
+                    { label: 'Files', value: metrics.services.objectStorage.fileCount },
+                  ]}
+                />
+              </div>
+              <p className="mt-2 text-[11px] text-ink-subtle">
+                Service figures cached — as of {timeAgo(metrics.derivedAt)}.
+              </p>
+            </section>
+
+            <section className="mb-8">
+              <SectionTitle>Backups</SectionTitle>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <ServiceCard
+                  name="restic backups"
+                  status={BACKUP_TONE[metrics.backup.status]}
+                  statusLabel={BACKUP_LABEL[metrics.backup.status]}
+                  primary={
+                    metrics.backup.lastRunAt ? timeAgo(metrics.backup.lastRunAt) : '—'
+                  }
+                  primaryLabel="last successful run"
+                  rows={[
+                    { label: 'Snapshots', value: metrics.backup.snapshots },
+                    { label: 'Repo size', value: formatBytes(metrics.backup.repoSizeBytes) },
+                    {
+                      label: 'Integrity check',
+                      value:
+                        metrics.backup.lastCheckOk === null
+                          ? '—'
+                          : metrics.backup.lastCheckOk
+                            ? 'passed'
+                            : 'failed',
+                    },
+                  ]}
+                />
+              </div>
+              {metrics.backup.status === 'unknown' && (
+                <p className="mt-2 text-[11px] text-ink-subtle">
+                  No backup status reported yet — the host backup job writes it on
+                  its first run.
+                </p>
+              )}
+              {metrics.backup.error && (
+                <p className="mt-2 text-[11px] text-status-dnd">
+                  Last error: {metrics.backup.error}
+                </p>
+              )}
+            </section>
+
+            <section className="mb-8">
               <SectionTitle>Realtime &amp; sessions</SectionTitle>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <StatCard
                   label="WS connections"
                   value={metrics.realtime.connections}
@@ -87,19 +206,11 @@ export function AdminMetricsPage() {
                   sub="valid refresh tokens"
                 />
                 <StatCard
-                  label="Storage used"
-                  value={formatBytes(metrics.storage.totalBytes)}
-                  sub={`${metrics.storage.fileCount} file${metrics.storage.fileCount === 1 ? '' : 's'}`}
-                />
-                <StatCard
                   label="Rate-limit hits"
                   value={metrics.rateLimit.total}
                   sub="since restart"
                 />
               </div>
-              <p className="mt-2 text-[11px] text-ink-subtle">
-                Storage &amp; sessions cached — as of {timeAgo(metrics.derivedAt)}.
-              </p>
             </section>
 
             <section className="mb-8">
@@ -139,22 +250,6 @@ export function AdminMetricsPage() {
                   )}
                 </div>
                 <RequestChart data={metrics.http.perMinute} />
-              </div>
-            </section>
-
-            <section className="mb-8">
-              <SectionTitle>Process</SectionTitle>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <StatCard
-                  label="Uptime"
-                  value={formatUptime(metrics.process.uptimeSec)}
-                />
-                <StatCard label="Memory (RSS)" value={`${metrics.process.rssMb} MB`} />
-                <StatCard
-                  label="Heap used"
-                  value={`${metrics.process.heapUsedMb} MB`}
-                />
-                <StatCard label="Node" value={metrics.process.nodeVersion} />
               </div>
             </section>
 
@@ -286,14 +381,4 @@ function RequestChart({ data }: { data: { minute: string; count: number }[] }) {
       </div>
     </div>
   );
-}
-
-function formatUptime(sec: number): string {
-  if (sec < 60) return `${sec}s`;
-  const d = Math.floor(sec / 86400);
-  const h = Math.floor((sec % 86400) / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
 }

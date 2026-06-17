@@ -4,18 +4,26 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ActivityType, Prisma, TaskPriority, TaskStatus } from '@prisma/client';
+import {
+  ActivityType,
+  NotificationType,
+  Prisma,
+  TaskPriority,
+  TaskStatus,
+} from '@prisma/client';
 import { MAX_PAGE_SIZE, toPage } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
-import { ProjectsService } from '../projects/projects.service';
+import { ProjectsService, roleAtLeast } from '../projects/projects.service';
 import { ActivityService } from '../activity/activity.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import type { NotificationWithRefs } from '../notifications/notifications.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { QueryTasksDto } from './dto/query-tasks.dto';
 
 const USER_LITE = {
-  select: { id: true, name: true, email: true, avatarColor: true },
+  select: { id: true, name: true, email: true, avatarColor: true, avatarKey: true },
 } as const;
 
 const TASK_INCLUDE = {
@@ -31,6 +39,7 @@ export class TasksService {
     private readonly prisma: PrismaService,
     private readonly projects: ProjectsService,
     private readonly activity: ActivityService,
+    private readonly notifications: NotificationsService,
     private readonly realtime: RealtimeGateway,
   ) {}
 
@@ -140,27 +149,42 @@ export class TasksService {
             key: true,
             name: true,
             ownerId: true,
-            members: { select: { id: true } },
           },
         },
       },
     });
     if (!task) throw new NotFoundException('Task not found');
-    if (task.project.ownerId !== userId) {
-      const isExplicitMember = task.project.members.some((m) => m.id === userId);
-      if (!isExplicitMember) {
-        // Implicit membership via assignment somewhere in the project.
-        const isAssignedAnywhere = await this.prisma.task.findFirst({
-          where: {
-            projectId: task.projectId,
-            assignees: { some: { id: userId } },
-          },
-          select: { id: true },
-        });
-        if (!isAssignedAnywhere) throw new ForbiddenException();
-      }
-    }
+    // Any effective role (owner / admin / editor / viewer) can read.
+    const role = await this.projects.roleIn(task.projectId, userId);
+    if (!role) throw new ForbiddenException();
     return task;
+  }
+
+  /**
+   * "My tasks" dashboard: open tasks assigned to the user across all open
+   * projects, soonest deadline first (no due date last).
+   */
+  async listMine(userId: string, opts: { cursor?: string; limit?: number } = {}) {
+    const limit = opts.limit ?? MAX_PAGE_SIZE;
+    const rows = await this.prisma.task.findMany({
+      where: {
+        assignees: { some: { id: userId } },
+        status: { not: TaskStatus.DONE },
+        project: { closedAt: null },
+      },
+      include: {
+        ...TASK_INCLUDE,
+        project: { select: { id: true, key: true, name: true, ownerId: true } },
+      },
+      orderBy: [
+        { dueDate: { sort: 'asc', nulls: 'last' } },
+        { createdAt: 'desc' },
+        { id: 'asc' },
+      ],
+      take: limit + 1,
+      ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
+    });
+    return toPage(rows, limit);
   }
 
   private async notifyProjectMembers(
@@ -174,21 +198,10 @@ export class TasksService {
   }
 
   async create(projectId: string, userId: string, dto: CreateTaskDto) {
-    await this.projects.getAccessible(projectId, userId);
+    // EDITOR+ create tasks and may assign anyone; assigning a non-member
+    // auto-adds them to the project as EDITOR (see ensureMember).
+    await this.projects.assertRole(projectId, userId, 'EDITOR');
     await this.projects.assertNotClosed(projectId);
-
-    // Permission: members can create tasks but only with themselves as assignee
-    // (or unassigned). Owners can assign anyone.
-    const project = await this.prisma.project.findUnique({
-      where: { id: projectId },
-      select: { ownerId: true },
-    });
-    const isOwner = project?.ownerId === userId;
-    if (!isOwner && dto.assigneeIds && dto.assigneeIds.some((id) => id !== userId)) {
-      throw new ForbiddenException(
-        'Members can only assign themselves on new tasks',
-      );
-    }
 
     const assigneeIds = dto.assigneeIds ?? [];
     await this.assertUsersExist(assigneeIds);
@@ -197,73 +210,79 @@ export class TasksService {
       await this.assertLabelsInProject(projectId, dto.labelIds);
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      const project = await tx.project.update({
-        where: { id: projectId },
-        data: { taskCounter: { increment: 1 } },
-        select: { taskCounter: true },
-      });
+    const { task: result, assignedNotifications } = await this.prisma.$transaction(
+      async (tx) => {
+        const project = await tx.project.update({
+          where: { id: projectId },
+          data: { taskCounter: { increment: 1 } },
+          select: { taskCounter: true },
+        });
 
-      const task = await tx.task.create({
-        data: {
-          number: project.taskCounter,
-          title: dto.title.trim(),
-          description: dto.description,
-          status: dto.status ?? TaskStatus.TODO,
-          priority: dto.priority ?? TaskPriority.MEDIUM,
-          position: dto.position ?? 0,
-          dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
-          parentId: dto.parentId,
-          projectId,
-          assignees: assigneeIds.length
-            ? { connect: assigneeIds.map((id) => ({ id })) }
-            : undefined,
-          labels: dto.labelIds?.length
-            ? { connect: dto.labelIds.map((id) => ({ id })) }
-            : undefined,
-        },
-        include: TASK_INCLUDE,
-      });
+        const task = await tx.task.create({
+          data: {
+            number: project.taskCounter,
+            title: dto.title.trim(),
+            description: dto.description,
+            status: dto.status ?? TaskStatus.TODO,
+            priority: dto.priority ?? TaskPriority.MEDIUM,
+            position: dto.position ?? 0,
+            dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
+            parentId: dto.parentId,
+            projectId,
+            assignees: assigneeIds.length
+              ? { connect: assigneeIds.map((id) => ({ id })) }
+              : undefined,
+            labels: dto.labelIds?.length
+              ? { connect: dto.labelIds.map((id) => ({ id })) }
+              : undefined,
+          },
+          include: TASK_INCLUDE,
+        });
 
-      await this.activity.log(
-        { taskId: task.id, actorId: userId, type: ActivityType.CREATED },
-        tx,
-      );
+        await this.activity.log(
+          { taskId: task.id, actorId: userId, type: ActivityType.CREATED },
+          tx,
+        );
 
-      return task;
-    });
+        for (const aid of assigneeIds) {
+          await this.projects.ensureMember(projectId, aid, tx);
+        }
+        const assignedNotifications = await this.notifications.notify(
+          {
+            recipientIds: assigneeIds.filter((aid) => aid !== userId),
+            type: NotificationType.ASSIGNED,
+            actorId: userId,
+            taskId: task.id,
+          },
+          tx,
+        );
+
+        return { task, assignedNotifications };
+      },
+    );
 
     await this.projects.syncClosureState(projectId);
     this.realtime.emitTaskUpserted(projectId, result);
+    this.emitNotifications(assignedNotifications);
     await this.notifyProjectMembers(projectId, [...assigneeIds, userId]);
     return result;
+  }
+
+  private emitNotifications(notifications: NotificationWithRefs[]): void {
+    for (const n of notifications) {
+      this.realtime.emitNotification(n.userId, n);
+    }
   }
 
   async update(id: string, userId: string, dto: UpdateTaskDto) {
     const before = await this.get(id, userId);
     await this.projects.assertNotClosed(before.projectId);
-    const isOwner = before.project.ownerId === userId;
 
-    // Permission: members can only change status and board position.
-    // Title, description, priority, assignees, labels, due date, parent are
-    // owner-only. This matches the UI: pickers are disabled for non-owners.
-    if (!isOwner) {
-      const ownerOnly: (keyof UpdateTaskDto)[] = [
-        'title',
-        'description',
-        'priority',
-        'dueDate',
-        'assigneeIds',
-        'parentId',
-        'labelIds',
-      ];
-      for (const k of ownerOnly) {
-        if ((dto as Record<string, unknown>)[k as string] !== undefined) {
-          throw new ForbiddenException(
-            `Only the project owner can change "${String(k)}"`,
-          );
-        }
-      }
+    // Permission: VIEWERs are read-only (not even status/position); EDITOR
+    // and above edit every field. Deletion stays ADMIN+ (see remove()).
+    const role = await this.projects.roleIn(before.projectId, userId);
+    if (!roleAtLeast(role, 'EDITOR')) {
+      throw new ForbiddenException('Viewers cannot modify tasks');
     }
 
     if (dto.assigneeIds) await this.assertUsersExist(dto.assigneeIds);
@@ -294,7 +313,7 @@ export class TasksService {
       data.labels = { set: dto.labelIds.map((lid) => ({ id: lid })) };
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    const { after: result, createdNotifications } = await this.prisma.$transaction(async (tx) => {
       // Read `beforeRow` inside the transaction so the activity-log diffs
       // reflect what *this* mutation actually changed. Reading `before` outside
       // the transaction (as we did) meant two concurrent PATCH calls could both
@@ -441,11 +460,52 @@ export class TasksService {
         }
       }
 
-      return after;
+      // Inbox fan-out, inside the tx so a rollback never leaves stray rows:
+      // new assignees are auto-added as members + get ASSIGNED; current
+      // assignees (minus the actor) hear about status changes.
+      const created: NotificationWithRefs[] = [];
+      if (dto.assigneeIds) {
+        const beforeIds = new Set(beforeRow.assignees.map((a) => a.id));
+        const added = after.assignees
+          .map((a) => a.id)
+          .filter((x) => !beforeIds.has(x));
+        for (const aid of added) {
+          await this.projects.ensureMember(before.projectId, aid, tx);
+        }
+        created.push(
+          ...(await this.notifications.notify(
+            {
+              recipientIds: added.filter((aid) => aid !== userId),
+              type: NotificationType.ASSIGNED,
+              actorId: userId,
+              taskId: id,
+            },
+            tx,
+          )),
+        );
+      }
+      if (dto.status !== undefined && beforeRow.status !== after.status) {
+        created.push(
+          ...(await this.notifications.notify(
+            {
+              recipientIds: after.assignees
+                .map((a) => a.id)
+                .filter((aid) => aid !== userId),
+              type: NotificationType.TASK_STATUS_CHANGED,
+              actorId: userId,
+              taskId: id,
+            },
+            tx,
+          )),
+        );
+      }
+
+      return { after, createdNotifications: created };
     });
 
     await this.projects.syncClosureState(before.projectId);
     this.realtime.emitTaskUpserted(before.projectId, result);
+    this.emitNotifications(createdNotifications);
     // Notify old assignees (so the project disappears if they were the only
     // reason it appeared), new assignees, and the actor.
     const oldAssigneeIds = before.assignees.map((a) => a.id);
@@ -460,9 +520,8 @@ export class TasksService {
 
   async remove(id: string, userId: string): Promise<void> {
     const task = await this.get(id, userId);
-    if (task.project.ownerId !== userId) {
-      throw new ForbiddenException('Only the project owner can delete tasks');
-    }
+    // Destructive: project ADMINs and the owner only.
+    await this.projects.assertRole(task.projectId, userId, 'ADMIN');
     await this.projects.assertNotClosed(task.projectId);
     const formerAssignees = task.assignees.map((a) => a.id);
     await this.prisma.task.delete({ where: { id } });

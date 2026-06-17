@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
@@ -21,6 +22,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { CommentsModule } from './comments/comments.module';
 import { LabelsModule } from './labels/labels.module';
 import { ActivityModule } from './activity/activity.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { StorageModule } from './storage/storage.module';
@@ -29,6 +31,7 @@ import { AttachmentsModule } from './attachments/attachments.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     AppConfigModule,
     RedisModule,
     MetricsModule,
@@ -65,6 +68,7 @@ import { AttachmentsModule } from './attachments/attachments.module';
     CommentsModule,
     LabelsModule,
     ActivityModule,
+    NotificationsModule,
     AdminModule,
     RealtimeModule,
     StorageModule,

@@ -15,8 +15,14 @@ describe('ProjectsService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    projectMember: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      upsert: jest.fn(),
+      update: jest.fn(),
+      deleteMany: jest.fn(),
+    },
     task: {
-      findFirst: jest.fn(),
       groupBy: jest.fn(),
     },
   };
@@ -52,34 +58,58 @@ describe('ProjectsService', () => {
     await expect(service.getOwned('p1', 'u1')).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  // IDOR guard: getAccessible is the single access check used by tasks,
-  // comments, attachments and realtime — a regression here exposes every
-  // project-scoped resource to strangers.
-  describe('getAccessible', () => {
-    const row = { id: 'p1', ownerId: 'owner', members: [{ id: 'member' }] };
+  // IDOR guard: getAccessible/roleIn is the single access check used by
+  // tasks, comments, attachments and realtime — a regression here exposes
+  // every project-scoped resource to strangers.
+  describe('access & roles', () => {
+    const row = { id: 'p1', ownerId: 'owner' };
 
-    it('denies a user who is neither owner, member nor assignee', async () => {
+    it('denies a user with no member row', async () => {
       prismaMock.project.findUnique.mockResolvedValueOnce({ ...row });
-      prismaMock.task.findFirst.mockResolvedValueOnce(null);
+      prismaMock.projectMember.findUnique.mockResolvedValueOnce(null);
       await expect(service.getAccessible('p1', 'stranger')).rejects.toBeInstanceOf(
         ForbiddenException,
       );
     });
 
-    it('allows an explicit member', async () => {
+    it('returns the member-row role to a member', async () => {
       prismaMock.project.findUnique.mockResolvedValueOnce({ ...row });
-      await expect(service.getAccessible('p1', 'member')).resolves.toMatchObject({
+      prismaMock.projectMember.findUnique.mockResolvedValueOnce({ role: 'VIEWER' });
+      await expect(service.getAccessible('p1', 'viewer')).resolves.toMatchObject({
         id: 'p1',
+        myRole: 'VIEWER',
       });
-      // Member short-circuits before the assignee lookup.
-      expect(prismaMock.task.findFirst).not.toHaveBeenCalled();
     });
 
-    it('allows an implicit member (assigned to a task in the project)', async () => {
+    it('returns OWNER for the owner without a member lookup', async () => {
       prismaMock.project.findUnique.mockResolvedValueOnce({ ...row });
-      prismaMock.task.findFirst.mockResolvedValueOnce({ id: 't1' });
-      await expect(service.getAccessible('p1', 'assignee')).resolves.toMatchObject({
-        id: 'p1',
+      await expect(service.getAccessible('p1', 'owner')).resolves.toMatchObject({
+        myRole: 'OWNER',
+      });
+      expect(prismaMock.projectMember.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('assertRole enforces the hierarchy (VIEWER < EDITOR)', async () => {
+      prismaMock.project.findUnique.mockResolvedValue({ ...row });
+      prismaMock.projectMember.findUnique.mockResolvedValueOnce({ role: 'VIEWER' });
+      await expect(service.assertRole('p1', 'viewer', 'EDITOR')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      prismaMock.projectMember.findUnique.mockResolvedValueOnce({ role: 'ADMIN' });
+      await expect(service.assertRole('p1', 'admin', 'EDITOR')).resolves.toBe('ADMIN');
+    });
+
+    it('ensureMember auto-adds an EDITOR row but never for the owner', async () => {
+      prismaMock.project.findUnique.mockResolvedValueOnce({ ownerId: 'owner' });
+      await service.ensureMember('p1', 'owner');
+      expect(prismaMock.projectMember.upsert).not.toHaveBeenCalled();
+
+      prismaMock.project.findUnique.mockResolvedValueOnce({ ownerId: 'owner' });
+      await service.ensureMember('p1', 'newbie');
+      expect(prismaMock.projectMember.upsert).toHaveBeenCalledWith({
+        where: { projectId_userId: { projectId: 'p1', userId: 'newbie' } },
+        update: {},
+        create: { projectId: 'p1', userId: 'newbie', role: 'EDITOR' },
       });
     });
   });
@@ -91,7 +121,7 @@ describe('ProjectsService', () => {
         ownerId: 'u1',
         _count: { tasks: 0 },
         owner: { id: 'u1' },
-        members: [],
+        memberships: [],
       };
     }
 

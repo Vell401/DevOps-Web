@@ -39,6 +39,7 @@ export interface User {
   email: string;
   name: string;
   avatarColor?: string;
+  avatarKey?: string | null;
   isAdmin?: boolean;
   createdAt: string;
 }
@@ -58,6 +59,9 @@ export interface LoginEvent {
   createdAt: string;
 }
 
+/** Health of a backing service on the metrics dashboard. */
+export type ServiceStatus = 'up' | 'down' | 'disabled';
+
 export interface AdminMetrics {
   realtime: { connections: number; onlineUsers: number };
   sessions: number;
@@ -72,11 +76,44 @@ export interface AdminMetrics {
     avgMs: number;
     perMinute: { minute: string; count: number }[];
   };
-  process: {
-    uptimeSec: number;
-    rssMb: number;
-    heapUsedMb: number;
-    nodeVersion: string;
+  services: {
+    backend: {
+      status: ServiceStatus;
+      uptimeSec: number;
+      version: string;
+      rssMb: number;
+      heapUsedMb: number;
+    };
+    postgres: {
+      status: ServiceStatus;
+      sizeBytes: number;
+      version: string;
+      uptimeSec: number;
+      connections: number;
+    };
+    redis: {
+      status: ServiceStatus;
+      usedMemoryBytes: number;
+      keys: number;
+      version: string;
+      uptimeSec: number;
+      connectedClients: number;
+    };
+    objectStorage: {
+      status: ServiceStatus;
+      sizeBytes: number;
+      fileCount: number;
+    };
+  };
+  backup: {
+    status: 'ok' | 'failed' | 'stale' | 'unknown';
+    lastRunAt: string | null;
+    ageSec: number | null;
+    ok: boolean;
+    snapshots: number;
+    repoSizeBytes: number;
+    lastCheckOk: boolean | null;
+    error: string | null;
   };
   build: {
     version: string;
@@ -103,6 +140,16 @@ export interface UserLite {
   name: string;
   email: string;
   avatarColor?: string;
+  /** Set when the user uploaded a profile photo (cache-busts on re-upload). */
+  avatarKey?: string | null;
+}
+
+export type ProjectRole = 'VIEWER' | 'EDITOR' | 'ADMIN';
+/** Effective role: ownership outranks every member role. */
+export type EffectiveRole = ProjectRole | 'OWNER';
+
+export interface ProjectMemberInfo extends UserLite {
+  role: ProjectRole;
 }
 
 export interface Project {
@@ -119,6 +166,8 @@ export interface Project {
   // Present on the list endpoint (GET /projects); omitted by GET /projects/:id.
   owner?: UserLite;
   members?: UserLite[];
+  // Present on GET /projects/:id — the caller's effective role.
+  myRole?: EffectiveRole;
 }
 
 export interface Label {
@@ -162,6 +211,7 @@ export interface Comment {
   taskId: string;
   authorId: string;
   author?: UserLite;
+  attachments?: Attachment[];
   createdAt: string;
   updatedAt: string;
 }
@@ -169,6 +219,8 @@ export interface Comment {
 export interface Attachment {
   id: string;
   taskId: string;
+  /** Set when the file was attached via a comment (renders inline there). */
+  commentId?: string | null;
   uploaderId: string;
   uploader?: UserLite;
   key: string;
@@ -206,4 +258,27 @@ export interface ActivityStats {
 export interface Paginated<T> {
   items: T[];
   nextCursor: string | null;
+}
+
+export type AppNotificationType =
+  | 'MENTIONED'
+  | 'ASSIGNED'
+  | 'TASK_STATUS_CHANGED'
+  | 'DUE_SOON';
+
+/** In-app notification ("X mentioned you in a comment on PRJ-12"). */
+export interface AppNotification {
+  id: string;
+  type: AppNotificationType;
+  /** null = unread; ISO timestamp once the user has seen it. */
+  readAt: string | null;
+  createdAt: string;
+  actor?: UserLite | null;
+  task?: {
+    id: string;
+    number: number;
+    title: string;
+    project?: { id: string; key: string; name: string };
+  } | null;
+  comment?: { id: string; body: string } | null;
 }

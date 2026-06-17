@@ -1,9 +1,11 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useRef, useState } from 'react';
 import { Dialog } from '../ui/Dialog';
 import { Avatar } from '../ui/Avatar';
+import { Icon } from '../ui/Icon';
+import { Spinner } from '../ui/Spinner';
 import { useAuth } from '../auth/AuthContext';
 import { useToast } from '../ui/Toast';
-import { authApi } from '../api/endpoints';
+import { authApi, usersApi } from '../api/endpoints';
 import { tokenStorage } from '../api/client';
 import { apiError } from '../lib/apiError';
 
@@ -21,14 +23,49 @@ function joinedLabel(iso: string): string {
 }
 
 export function ProfileDialog({ open, onClose }: Props) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const toast = useToast();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   if (!user) return null;
+
+  const onPickAvatar = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.push('Avatar must be 2 MB or smaller', 'error');
+      return;
+    }
+    setAvatarBusy(true);
+    try {
+      await usersApi.uploadAvatar(file);
+      await refreshUser();
+      toast.push('Profile photo updated', 'success');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not upload photo'), 'error');
+    } finally {
+      setAvatarBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const onRemoveAvatar = async () => {
+    setAvatarBusy(true);
+    try {
+      await usersApi.removeAvatar();
+      await refreshUser();
+      toast.push('Profile photo removed', 'success');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not remove photo'), 'error');
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
 
   const reset = () => {
     setCurrent('');
@@ -65,8 +102,14 @@ export function ProfileDialog({ open, onClose }: Props) {
     <Dialog open={open} onClose={onClose} title="Profile" width={460}>
       <div className="space-y-5">
         <div className="flex items-center gap-4">
-          <Avatar name={user.name} color={user.avatarColor} size="lg" />
-          <div className="min-w-0">
+          <Avatar
+            name={user.name}
+            color={user.avatarColor}
+            size="lg"
+            userId={user.id}
+            avatarKey={user.avatarKey}
+          />
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h3 className="truncate font-display text-lg font-semibold text-ink">
                 {user.name}
@@ -79,6 +122,37 @@ export function ProfileDialog({ open, onClose }: Props) {
             <div className="mt-0.5 text-[11px] text-ink-subtle">
               Joined {joinedLabel(user.createdAt)}
             </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => void onPickAvatar(e.target.files)}
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={avatarBusy}
+                className="btn-secondary h-7 px-2 text-xs"
+              >
+                {avatarBusy ? <Spinner /> : <Icon.User size={12} />}
+                {user.avatarKey ? 'Change photo' : 'Upload photo'}
+              </button>
+              {user.avatarKey && (
+                <button
+                  type="button"
+                  onClick={() => void onRemoveAvatar()}
+                  disabled={avatarBusy}
+                  className="btn-ghost h-7 px-2 text-xs"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+            <p className="mt-1 text-[10px] text-ink-subtle">
+              JPEG, PNG or WebP · up to 2 MB
+            </p>
           </div>
         </div>
 
