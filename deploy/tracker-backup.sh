@@ -58,8 +58,11 @@ else
 fi
 
 # --- 3. Retention (GFS). keep-last preserves recent 6-hourly snapshots.
+#        Single source of truth for the policy — reused in status.json below.
+KEEP_LAST=8 KEEP_DAILY=7 KEEP_WEEKLY=4 KEEP_MONTHLY=3
 restic forget \
-  --keep-last 8 --keep-daily 7 --keep-weekly 4 --keep-monthly 3 \
+  --keep-last "$KEEP_LAST" --keep-daily "$KEEP_DAILY" \
+  --keep-weekly "$KEEP_WEEKLY" --keep-monthly "$KEEP_MONTHLY" \
   --prune || err="${err:+$err; }restic forget/prune failed"
 
 # --- 4. Integrity check. Structural every run; sample real data when asked
@@ -75,11 +78,26 @@ fi
 
 # --- 5. Write status.json (no secrets) for the admin dashboard. 644 so the
 #        backend (different uid) can read it; repo + password stay root-only.
-snapshots="$(restic snapshots --json 2>/dev/null | grep -o '"id"' | wc -l | tr -d ' ')"
+snaps_json="$(restic snapshots --json 2>/dev/null || echo '[]')"
 repo_bytes="$(restic stats --mode raw-data --json 2>/dev/null \
   | grep -o '"total_size":[0-9]*' | cut -d: -f2)"
 run_ok=false
 [ "$db_ok" = true ] && [ "$minio_ok" = true ] && run_ok=true
+
+# Snapshot count + recent log + oldest snapshot. jq (installed per RUNNING-VM)
+# builds the rich fields; without it we fall back to count-only.
+if command -v jq >/dev/null 2>&1; then
+  snapshots="$(printf '%s' "$snaps_json" | jq 'length')"
+  recent="$(printf '%s' "$snaps_json" \
+    | jq -c 'sort_by(.time) | reverse | .[0:20]
+             | map({ time: .time, tag: (.tags[0] // ""), id: (.short_id // .id[0:8]) })')"
+  oldest="$(printf '%s' "$snaps_json" \
+    | jq -r 'if length==0 then "null" else (sort_by(.time)[0].time | tojson) end')"
+else
+  snapshots="$(printf '%s' "$snaps_json" | grep -o '"id"' | wc -l | tr -d ' ')"
+  recent='[]'
+  oldest='null'
+fi
 
 mkdir -p "$(dirname "$STATUS_FILE")"
 cat > "$STATUS_FILE" <<JSON
@@ -91,7 +109,10 @@ cat > "$STATUS_FILE" <<JSON
   "snapshots": ${snapshots:-0},
   "repoSizeBytes": ${repo_bytes:-0},
   "lastCheck": { "ok": $check_ok, "at": "$(ts)" },
-  "error": $( [ -n "$err" ] && printf '"%s"' "$err" || printf 'null' )
+  "error": $( [ -n "$err" ] && printf '"%s"' "$err" || printf 'null' ),
+  "recent": ${recent:-[]},
+  "oldest": ${oldest:-null},
+  "retention": { "last": $KEEP_LAST, "daily": $KEEP_DAILY, "weekly": $KEEP_WEEKLY, "monthly": $KEEP_MONTHLY }
 }
 JSON
 chmod 644 "$STATUS_FILE"

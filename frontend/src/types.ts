@@ -114,6 +114,10 @@ export interface AdminMetrics {
     repoSizeBytes: number;
     lastCheckOk: boolean | null;
     error: string | null;
+    oldest: string | null;
+    retention: { last: number; daily: number; weekly: number; monthly: number } | null;
+    recentDays: { date: string; db: boolean; minio: boolean; ok: boolean }[];
+    recent: { time: string; tag: string; id: string }[];
   };
   build: {
     version: string;
