@@ -76,6 +76,10 @@ services:
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
       THROTTLE_TTL: ${THROTTLE_TTL:-60}
       THROTTLE_LIMIT: ${THROTTLE_LIMIT:-120}
+      # Stricter per-IP throttle for auth routes (login/register/refresh).
+      # Defaults to 10/60s; raise only in a load-test environment.
+      THROTTLE_AUTH_TTL: ${THROTTLE_AUTH_TTL:-60}
+      THROTTLE_AUTH_LIMIT: ${THROTTLE_AUTH_LIMIT:-10}
       # Only consumed by `npm run prisma:seed` when invoked manually via
       # `docker compose exec backend …`. The running app never reads them.
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
