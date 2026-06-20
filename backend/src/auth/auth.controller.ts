@@ -21,7 +21,18 @@ import { JwtAccessGuard } from './guards/jwt-access.guard';
 import { CurrentUser, AuthenticatedUser } from './decorators/current-user.decorator';
 import { UsersService } from '../users/users.service';
 
-const AUTH_THROTTLE = { default: { ttl: 60_000, limit: 10 } };
+// Auth endpoints get a stricter per-IP throttle than the global default. The
+// window/limit are read from env so a load-test environment can lift them
+// without a code change (defaults keep the strict 10/60s in prod). Read at
+// module load from process.env — `@Throttle` is a static decorator and can't
+// use the DI config service; in Docker these vars are injected by compose
+// before the process starts, so they're reliably present here.
+const AUTH_THROTTLE = {
+  default: {
+    ttl: (Number(process.env.THROTTLE_AUTH_TTL) || 60) * 1000,
+    limit: Number(process.env.THROTTLE_AUTH_LIMIT) || 10,
+  },
+};
 
 @ApiTags('auth')
 @Controller('auth')

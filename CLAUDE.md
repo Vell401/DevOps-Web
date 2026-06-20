@@ -50,7 +50,8 @@ backend/    NestJS API — src/ modules (auth, users, projects, tasks, comments,
 frontend/   React SPA — src/ (pages, components, ui, api client, auth context,
             lib), nginx.conf (serves on :8080, unprivileged), Dockerfile
 deploy/     edge.conf — production reverse-proxy (HTTP + WebSocket upgrade,
-            security headers, gzip)
+            security headers, gzip); tracker-backup.sh + systemd/ — host restic
+            backup job + timer (see BACKUPS.md)
 .github/    workflows: ci.yml (PRs), dev-cd.yml (push to dev), prod-cd.yml (push to main)
 docker-compose.yml        local dev stack (builds from source)
 docker-compose.prod.yml   prod stack (pulls images from Docker Hub)
@@ -147,12 +148,18 @@ prod they come from GitHub Secrets.
   frontend fetches the protected bytes once per `avatarKey` and caches the
   object URL (`lib/avatarCache.ts`).
 
-- **Admin metrics.** `/admin/metrics` shows a per-service dashboard. The backend
-  builds it in `admin.service.ts`: an infra snapshot (Postgres size via
-  `pg_database_size` + version/uptime/connections; Redis via `INFO`/`dbsize`; S3
-  bucket reachability; attachment bytes) cached per `metricsCacheTtlMs` and
-  shared across replicas via Redis. No Docker socket is used — each service
-  reports through its own protocol. The **Backups** card is fed by a
+- **Admin metrics.** `/admin/metrics` shows a per-service dashboard, assembled in
+  two layers. The `metrics` module's `@Global() MetricsService` is a live
+  in-process collector several layers feed: HTTP request counts (the
+  `HttpMetricsMiddleware`, which runs before guards so it also counts
+  401/403/404/429), slow Prisma queries, realtime connection counts, and
+  rate-limit hits (the `ThrottlerMetricsFilter`, which re-emits the standard 429).
+  `admin.service.ts` then merges that snapshot with an infra snapshot (Postgres
+  size via `pg_database_size` + version/uptime/connections; Redis via
+  `INFO`/`dbsize`; S3 bucket reachability; attachment bytes) cached per
+  `metricsCacheTtlMs` and shared across replicas via Redis. No Docker socket is
+  used — each service reports through its own protocol. The **Backups** card is
+  fed by a
   `status.json` written by the host restic job (`deploy/tracker-backup.sh`) and
   read-only mounted into the backend (`BACKUP_STATUS_FILE`); the app only reads
   it, never runs backups — see BACKUPS.md.
