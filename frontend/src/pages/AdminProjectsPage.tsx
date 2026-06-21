@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { adminApi } from '../api/endpoints';
 import type { AdminProject } from '../types';
 import { Topbar } from '../components/Topbar';
@@ -22,6 +23,7 @@ const FILTERS: { value: ClosedFilter; label: string }[] = [
 export function AdminProjectsPage() {
   const toast = useToast();
   const [items, setItems] = useState<AdminProject[]>([]);
+  const [total, setTotal] = useState(0);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -52,6 +54,7 @@ export function AdminProjectsPage() {
       });
       if (myReq !== reqId.current) return;
       setItems(data.items);
+      setTotal(data.total);
       setCursor(data.nextCursor);
     } catch {
       if (myReq === reqId.current) toast.push('Failed to load projects', 'error');
@@ -124,10 +127,7 @@ export function AdminProjectsPage() {
           </div>
         ) : (
           <section>
-            <SectionTitle>
-              Projects ({items.length}
-              {cursor ? '+' : ''})
-            </SectionTitle>
+            <SectionTitle>Projects ({total})</SectionTitle>
             <div className="overflow-x-auto rounded-lg border border-line bg-surface shadow-card scrollbar-thin">
               <table className="w-full min-w-[820px] text-sm">
                 <thead className="border-b border-line bg-paper/60 text-xs uppercase tracking-wide text-ink-subtle">
@@ -148,7 +148,12 @@ export function AdminProjectsPage() {
                           <span className="chip bg-chip-gray font-mono text-ink-muted">
                             {p.key}
                           </span>
-                          <span className="font-medium text-ink">{p.name}</span>
+                          <Link
+                            to={`/projects/${p.id}`}
+                            className="font-medium text-ink hover:text-blurple hover:underline"
+                          >
+                            {p.name}
+                          </Link>
                         </div>
                       </Td>
                       <Td>

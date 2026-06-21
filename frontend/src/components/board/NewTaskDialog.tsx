@@ -37,6 +37,7 @@ export function NewTaskDialog({
   const [status, setStatus] = useState<TaskStatus>(defaultStatus);
   const [priority, setPriority] = useState<TaskPriority>('MEDIUM');
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+  const [assigneeQuery, setAssigneeQuery] = useState('');
   const [labelIds, setLabelIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
@@ -48,6 +49,7 @@ export function NewTaskDialog({
       setDescription('');
       setPriority('MEDIUM');
       setAssigneeIds([]);
+      setAssigneeQuery('');
       setLabelIds([]);
     }
   }, [open, defaultStatus]);
@@ -79,7 +81,7 @@ export function NewTaskDialog({
   const selectedLabels = labels.filter((l) => labelIds.includes(l.id));
 
   return (
-    <Dialog open={open} onClose={onClose} title="New task" width={520}>
+    <Dialog open={open} onClose={onClose} title="New task" width={560}>
       <form onSubmit={onSubmit} className="space-y-3">
         <input
           autoFocus
@@ -99,6 +101,7 @@ export function NewTaskDialog({
 
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <Popover
+            portal
             trigger={({ toggle }) => (
               <button type="button" onClick={toggle} className="btn-secondary h-7 px-2 text-xs">
                 <span className={cn('h-1.5 w-1.5 rounded-full', STATUS_META[status].dot)} />
@@ -125,6 +128,7 @@ export function NewTaskDialog({
           </Popover>
 
           <Popover
+            portal
             trigger={({ toggle }) => (
               <button type="button" onClick={toggle} className="btn-secondary h-7 px-2 text-xs">
                 <Icon.Flag size={12} />
@@ -149,6 +153,7 @@ export function NewTaskDialog({
           </Popover>
 
           <Popover
+            portal
             trigger={({ toggle }) => (
               <button type="button" onClick={toggle} className="btn-secondary h-7 px-2 text-xs">
                 <Icon.User size={12} />
@@ -160,37 +165,60 @@ export function NewTaskDialog({
               </button>
             )}
           >
-            {() => (
-              <>
-                {users.map((u) => {
-                  const active = assigneeIds.includes(u.id);
-                  return (
-                    <PopoverItem
-                      key={u.id}
-                      active={active}
-                      onClick={() =>
-                        setAssigneeIds((prev) =>
-                          active ? prev.filter((x) => x !== u.id) : [...prev, u.id],
-                        )
-                      }
-                      icon={
-                        <span className="inline-flex h-4 w-4 items-center justify-center">
-                          {active ? <Icon.Check size={12} /> : null}
+            {() => {
+              const q = assigneeQuery.trim().toLowerCase();
+              const shown = q
+                ? users.filter(
+                    (u) =>
+                      u.name.toLowerCase().includes(q) ||
+                      u.email.toLowerCase().includes(q),
+                  )
+                : users;
+              return (
+                <div className="w-[240px]">
+                  <div className="sticky top-0 z-10 bg-surface pb-1">
+                    <input
+                      autoFocus
+                      value={assigneeQuery}
+                      onChange={(e) => setAssigneeQuery(e.target.value)}
+                      placeholder="Search people…"
+                      className="w-full rounded-md bg-surface-sunken px-2 py-1.5 text-xs text-ink placeholder:text-ink-subtle focus-visible:shadow-focus"
+                    />
+                  </div>
+                  {shown.length === 0 && (
+                    <div className="px-2 py-1.5 text-xs text-ink-subtle">No matches</div>
+                  )}
+                  {shown.map((u) => {
+                    const active = assigneeIds.includes(u.id);
+                    return (
+                      <PopoverItem
+                        key={u.id}
+                        active={active}
+                        onClick={() =>
+                          setAssigneeIds((prev) =>
+                            active ? prev.filter((x) => x !== u.id) : [...prev, u.id],
+                          )
+                        }
+                        icon={
+                          <span className="inline-flex h-4 w-4 items-center justify-center">
+                            {active ? <Icon.Check size={12} /> : null}
+                          </span>
+                        }
+                      >
+                        <span className="flex items-center gap-2">
+                          <Avatar name={u.name} color={u.avatarColor} size="xs" />
+                          {u.name}
                         </span>
-                      }
-                    >
-                      <span className="flex items-center gap-2">
-                        <Avatar name={u.name} color={u.avatarColor} size="xs" />
-                        {u.name}
-                      </span>
-                    </PopoverItem>
-                  );
-                })}
-              </>
-            )}
+                      </PopoverItem>
+                    );
+                  })}
+                </div>
+              );
+            }}
           </Popover>
 
           <Popover
+            portal
             trigger={({ toggle }) => (
               <button type="button" onClick={toggle} className="btn-secondary h-7 px-2 text-xs">
                 <Icon.Tag size={12} />

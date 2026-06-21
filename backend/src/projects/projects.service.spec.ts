@@ -25,6 +25,9 @@ describe('ProjectsService', () => {
     task: {
       groupBy: jest.fn(),
     },
+    user: {
+      findUnique: jest.fn(),
+    },
   };
   const realtimeMock = { emitProjectsChangedForUsers: jest.fn() };
 
@@ -64,12 +67,22 @@ describe('ProjectsService', () => {
   describe('access & roles', () => {
     const row = { id: 'p1', ownerId: 'owner' };
 
-    it('denies a user with no member row', async () => {
+    it('denies a user with no member row (and not a global admin)', async () => {
       prismaMock.project.findUnique.mockResolvedValueOnce({ ...row });
       prismaMock.projectMember.findUnique.mockResolvedValueOnce(null);
+      prismaMock.user.findUnique.mockResolvedValueOnce({ isAdmin: false });
       await expect(service.getAccessible('p1', 'stranger')).rejects.toBeInstanceOf(
         ForbiddenException,
       );
+    });
+
+    it('grants project-ADMIN to a global admin with no member row', async () => {
+      prismaMock.project.findUnique.mockResolvedValueOnce({ ...row });
+      prismaMock.projectMember.findUnique.mockResolvedValueOnce(null);
+      prismaMock.user.findUnique.mockResolvedValueOnce({ isAdmin: true });
+      await expect(service.getAccessible('p1', 'sysadmin')).resolves.toMatchObject({
+        myRole: 'ADMIN',
+      });
     });
 
     it('returns the member-row role to a member', async () => {

@@ -262,7 +262,7 @@ export const adminApi = {
   /** One page of ALL projects (open + closed, any owner); pass the previous
    *  page's cursor to continue. */
   listProjects: (params: { closed?: boolean; q?: string; cursor?: string } = {}) =>
-    api.get<Paginated<AdminProject>>('/admin/projects', {
+    api.get<{ items: AdminProject[]; nextCursor: string | null; total: number }>('/admin/projects', {
       params: {
         ...(params.closed !== undefined ? { closed: String(params.closed) } : {}),
         ...(params.q ? { q: params.q } : {}),

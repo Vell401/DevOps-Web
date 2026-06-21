@@ -33,6 +33,8 @@
 # Required GitHub variables (optional, with sensible defaults):
 #   VITE_API_URL            URL baked into the frontend bundle (default: /api)
 #   DEPLOY_DIR              absolute path on the VM (default: /opt/tracker)
+#   THROTTLE_TTL / THROTTLE_LIMIT            global rate limit (default 60 / 120)
+#   THROTTLE_AUTH_TTL / THROTTLE_AUTH_LIMIT  auth-route rate limit (default 60 / 10)
 #
 # Self-hosted runner must be registered with the "dev" label, so a future
 # prod runner (labeled "prod") doesn't pick up this workflow by mistake.
@@ -247,8 +249,13 @@ jobs:
           JWT_REFRESH_TTL=7d
           CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
           LOG_LEVEL=info
-          THROTTLE_TTL=60
-          THROTTLE_LIMIT=120
+          # Rate limits — overridable via repo Variables (Settings → Secrets and
+          # variables → Actions → Variables); default to the app's values. Raise
+          # the limits in a Variable for a load test, then revert.
+          THROTTLE_TTL=${{ vars.THROTTLE_TTL || '60' }}
+          THROTTLE_LIMIT=${{ vars.THROTTLE_LIMIT || '120' }}
+          THROTTLE_AUTH_TTL=${{ vars.THROTTLE_AUTH_TTL || '60' }}
+          THROTTLE_AUTH_LIMIT=${{ vars.THROTTLE_AUTH_LIMIT || '10' }}
           COMPOSE_PROJECT_NAME=tracker
           SEED_ADMIN_PASSWORD=${{ secrets.SEED_ADMIN_PASSWORD }}
           SEED_TEST_PASSWORD=${{ secrets.SEED_TEST_PASSWORD }}

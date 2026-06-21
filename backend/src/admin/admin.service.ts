@@ -142,6 +142,8 @@ export class AdminService {
             OR: [
               { name: { contains: opts.q, mode: 'insensitive' } },
               { key: { contains: opts.q, mode: 'insensitive' } },
+              { owner: { name: { contains: opts.q, mode: 'insensitive' } } },
+              { owner: { email: { contains: opts.q, mode: 'insensitive' } } },
             ],
           }
         : {}),
@@ -170,9 +172,11 @@ export class AdminService {
       take: limit + 1,
       ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
     });
+    // Total matching the filter (for the "N projects" header) — one count query.
+    const total = await this.prisma.project.count({ where });
 
     const page = toPage(rows, limit);
-    if (!page.items.length) return { items: [], nextCursor: page.nextCursor };
+    if (!page.items.length) return { items: [], nextCursor: page.nextCursor, total };
 
     // DONE roll-up for just this page (uses the (projectId, status) index).
     const done = await this.prisma.task.groupBy({
@@ -189,6 +193,7 @@ export class AdminService {
         stats: { total: _count.tasks, done: doneByProject.get(p.id) ?? 0 },
       })),
       nextCursor: page.nextCursor,
+      total,
     };
   }
 

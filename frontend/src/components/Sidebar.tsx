@@ -329,6 +329,7 @@ function AdminNavSection() {
       {expanded && (
         <ul className="mb-1 ml-4 space-y-0.5 border-l border-line pl-2">
           <SubNavLink to="/admin" label="Overview" end />
+          <SubNavLink to="/admin/projects" label="All projects" />
           <SubNavLink to="/admin/metrics" label="System metrics" />
         </ul>
       )}
