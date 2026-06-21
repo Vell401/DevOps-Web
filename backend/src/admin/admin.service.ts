@@ -11,6 +11,7 @@ import { AppConfigService } from '../config/app-config.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { RedisService } from '../redis/redis.service';
 import { S3StorageService } from '../storage/s3-storage.service';
+import { MAX_PAGE_SIZE, toPage } from '../common/pagination';
 import { AdminUpdateUserDto } from './dto/update-user.dto';
 
 /** State of a backing service shown on the dashboard. */
@@ -120,6 +121,75 @@ export class AdminService {
       },
       _count: undefined,
     }));
+  }
+
+  /**
+   * Admin-wide project listing: EVERY project (open + closed), regardless of
+   * ownership or membership — unlike GET /projects, which is scoped to the
+   * caller. Cursor-paginated like the rest of the app, with an optional
+   * open/closed filter and a name/key search.
+   */
+  async listProjects(
+    opts: { closed?: boolean; q?: string; cursor?: string; limit?: number } = {},
+  ) {
+    const limit = opts.limit ?? MAX_PAGE_SIZE;
+    const where: Prisma.ProjectWhereInput = {
+      ...(opts.closed === undefined
+        ? {}
+        : { closedAt: opts.closed ? { not: null } : null }),
+      ...(opts.q
+        ? {
+            OR: [
+              { name: { contains: opts.q, mode: 'insensitive' } },
+              { key: { contains: opts.q, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const rows = await this.prisma.project.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        key: true,
+        name: true,
+        closedAt: true,
+        createdAt: true,
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatarColor: true,
+            avatarKey: true,
+          },
+        },
+        _count: { select: { tasks: true, memberships: true } },
+      },
+      take: limit + 1,
+      ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
+    });
+
+    const page = toPage(rows, limit);
+    if (!page.items.length) return { items: [], nextCursor: page.nextCursor };
+
+    // DONE roll-up for just this page (uses the (projectId, status) index).
+    const done = await this.prisma.task.groupBy({
+      by: ['projectId'],
+      where: { projectId: { in: page.items.map((p) => p.id) }, status: 'DONE' },
+      _count: { _all: true },
+    });
+    const doneByProject = new Map(done.map((d) => [d.projectId, d._count._all]));
+
+    return {
+      items: page.items.map(({ _count, ...p }) => ({
+        ...p,
+        members: _count.memberships,
+        stats: { total: _count.tasks, done: doneByProject.get(p.id) ?? 0 },
+      })),
+      nextCursor: page.nextCursor,
+    };
   }
 
   async updateUser(

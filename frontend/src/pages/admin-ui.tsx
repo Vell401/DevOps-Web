@@ -7,6 +7,7 @@ export function AdminTabs() {
   return (
     <nav className="mb-6 flex gap-1 border-b border-line">
       <AdminTab to="/admin" label="Overview" end />
+      <AdminTab to="/admin/projects" label="All projects" />
       <AdminTab to="/admin/metrics" label="System metrics" />
     </nav>
   );

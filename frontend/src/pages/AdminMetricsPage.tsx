@@ -462,7 +462,7 @@ function RequestChart({ data }: { data: { minute: string; count: number }[] }) {
         ))}
       </div>
       <div className="mt-1 flex justify-between text-[11px] text-ink-subtle">
-        <span>30 min ago</span>
+        <span>{data.length} min ago</span>
         <span>
           {total} reqs · peak {max}/min
         </span>

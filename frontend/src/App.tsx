@@ -9,6 +9,7 @@ import { ActivityPage } from './pages/ActivityPage';
 import { MyTasksPage } from './pages/MyTasksPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { AdminPage } from './pages/AdminPage';
+import { AdminProjectsPage } from './pages/AdminProjectsPage';
 import { AdminMetricsPage } from './pages/AdminMetricsPage';
 import { RequireAuth } from './auth/RequireAuth';
 import { RequireAdmin } from './auth/RequireAdmin';
@@ -37,6 +38,14 @@ export function App() {
           element={
             <RequireAdmin>
               <AdminPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/projects"
+          element={
+            <RequireAdmin>
+              <AdminProjectsPage />
             </RequireAdmin>
           }
         />

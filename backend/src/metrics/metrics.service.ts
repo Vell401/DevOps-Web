@@ -25,11 +25,22 @@ export interface HttpSnapshot {
   perMinute: { minute: string; count: number }[];
 }
 
+/** One minute of HTTP traffic. Keeping the breakdown per-minute lets the
+ *  snapshot report counts/latency over a rolling window instead of since boot. */
+interface HttpMinuteBucket {
+  minute: number;
+  count: number;
+  durationSum: number;
+  byClass: Record<string, number>;
+  byMethod: Map<string, number>;
+}
+
 /** How many recent slow queries to retain in the ring buffer. */
 const SLOW_QUERY_BUFFER = 50;
-/** Minutes of per-minute request history retained, shown in the throughput
- *  chart, and averaged over for the "recent latency" figure. */
-const HTTP_WINDOW_MINUTES = 30;
+/** Length of the rolling window (minutes) the HTTP card is computed over — the
+ *  throughput chart, the headline request count, the status/method breakdown
+ *  and the latency average all cover this window, not the whole process life. */
+const HTTP_WINDOW_MINUTES = 60;
 
 /**
  * In-memory, process-local store for operational metrics shown in the admin
@@ -44,13 +55,11 @@ export class MetricsService {
   private throttleTotal = 0;
   private realtimeStats: RealtimeStats = { connections: 0, onlineUsers: 0 };
 
-  // HTTP throughput, accumulated continuously by the metrics middleware.
-  private httpTotal = 0;
-  private httpByClass: Record<string, number> = { '1xx': 0, '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0 };
-  private httpByMethod = new Map<string, number>();
-  // Per-minute buckets carry their own duration sum so the snapshot can report
-  // a windowed average that tracks recent conditions, not a lifetime mean.
-  private httpPerMinute: { minute: number; count: number; durationSum: number }[] = [];
+  // HTTP throughput as per-minute buckets, fed by the metrics middleware. Every
+  // figure the snapshot reports (count, status/method breakdown, latency) is
+  // summed across the retained buckets, so the card reflects a rolling window
+  // rather than a lifetime total. Buckets older than the window are dropped.
+  private httpBuckets: HttpMinuteBucket[] = [];
 
   /** Record a query that exceeded the slow threshold. Params are intentionally
    *  excluded by the caller so no personal data is ever stored here. */
@@ -99,33 +108,34 @@ export class MetricsService {
   recordHttp(method: string, status: number, durationMs: number): void {
     // Guard against a non-monotonic / negative duration (clock skew upstream).
     const dur = Math.max(0, durationMs);
-    this.httpTotal += 1;
-
     const cls = `${Math.floor(status / 100)}xx`;
-    if (cls in this.httpByClass) this.httpByClass[cls] += 1;
-
-    this.httpByMethod.set(method, (this.httpByMethod.get(method) ?? 0) + 1);
-
     const minute = Math.floor(Date.now() / 60000);
-    const last = this.httpPerMinute[this.httpPerMinute.length - 1];
-    if (last && last.minute === minute) {
-      last.count += 1;
-      last.durationSum += dur;
-    } else {
-      this.httpPerMinute.push({ minute, count: 1, durationSum: dur });
-      if (this.httpPerMinute.length > HTTP_WINDOW_MINUTES) this.httpPerMinute.shift();
+
+    let bucket = this.httpBuckets[this.httpBuckets.length - 1];
+    if (!bucket || bucket.minute !== minute) {
+      bucket = { minute, count: 0, durationSum: 0, byClass: {}, byMethod: new Map() };
+      this.httpBuckets.push(bucket);
+      if (this.httpBuckets.length > HTTP_WINDOW_MINUTES) this.httpBuckets.shift();
     }
+    bucket.count += 1;
+    bucket.durationSum += dur;
+    bucket.byClass[cls] = (bucket.byClass[cls] ?? 0) + 1;
+    bucket.byMethod.set(method, (bucket.byMethod.get(method) ?? 0) + 1);
   }
 
   httpSnapshot(): HttpSnapshot {
-    // Fill the last N minutes (including idle gaps) so the chart is continuous,
-    // and average latency over that same window so it reflects recent
-    // conditions rather than a diluted lifetime mean.
+    // Everything below is summed over the last HTTP_WINDOW_MINUTES: the chart
+    // fills idle gaps with zeroes to stay continuous, and the count / breakdown
+    // / latency cover the same window so the card tracks recent conditions
+    // rather than a lifetime total.
     const nowMinute = Math.floor(Date.now() / 60000);
-    const buckets = new Map(this.httpPerMinute.map((b) => [b.minute, b]));
+    const buckets = new Map(this.httpBuckets.map((b) => [b.minute, b]));
     const perMinute: { minute: string; count: number }[] = [];
+    const byClass: Record<string, number> = { '1xx': 0, '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0 };
+    const byMethodMap = new Map<string, number>();
     let windowCount = 0;
     let windowDuration = 0;
+
     for (let i = HTTP_WINDOW_MINUTES - 1; i >= 0; i--) {
       const m = nowMinute - i;
       const bucket = buckets.get(m);
@@ -133,19 +143,24 @@ export class MetricsService {
         minute: new Date(m * 60000).toISOString(),
         count: bucket?.count ?? 0,
       });
-      if (bucket) {
-        windowCount += bucket.count;
-        windowDuration += bucket.durationSum;
+      if (!bucket) continue;
+      windowCount += bucket.count;
+      windowDuration += bucket.durationSum;
+      for (const [cls, n] of Object.entries(bucket.byClass)) {
+        byClass[cls] = (byClass[cls] ?? 0) + n;
+      }
+      for (const [method, n] of bucket.byMethod) {
+        byMethodMap.set(method, (byMethodMap.get(method) ?? 0) + n);
       }
     }
 
-    const byMethod = MetricsService.sortByCountDesc(this.httpByMethod).map(
+    const byMethod = MetricsService.sortByCountDesc(byMethodMap).map(
       ([method, count]) => ({ method, count }),
     );
 
     return {
-      total: this.httpTotal,
-      byClass: { ...this.httpByClass },
+      total: windowCount,
+      byClass,
       byMethod,
       avgMs: windowCount ? Math.round(windowDuration / windowCount) : 0,
       perMinute,

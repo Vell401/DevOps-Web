@@ -51,6 +51,19 @@ export interface AdminUser extends User {
   stats: { projects: number; tasks: number; comments: number };
 }
 
+/** One row of the admin-wide project list (GET /admin/projects): every project
+ *  regardless of ownership, with owner, member count and task roll-up. */
+export interface AdminProject {
+  id: string;
+  key: string;
+  name: string;
+  closedAt: string | null;
+  createdAt: string;
+  owner: UserLite;
+  members: number;
+  stats: { total: number; done: number };
+}
+
 export interface LoginEvent {
   id: string;
   success: boolean;

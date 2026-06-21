@@ -152,7 +152,12 @@ model Task {
   updatedAt     DateTime       @updatedAt
 
   @@unique([projectId, number])
-  @@index([projectId])
+  // Composite (projectId, status) serves the hot per-project status filters —
+  // the DONE roll-up on the project list, close()/syncClosureState counts — and
+  // also covers projectId-only lookups via its left prefix, so a standalone
+  // projectId index would be redundant. A status-only index stays for global
+  // status filters (admin stats, due-soon sweeps).
+  @@index([projectId, status])
   @@index([status])
   @@index([parentId])
 }
