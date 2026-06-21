@@ -41,6 +41,7 @@
 #   DEPLOY_DIR              absolute path on the VM (default: /opt/tracker)
 #   THROTTLE_TTL / THROTTLE_LIMIT            global rate limit (default 60 / 120)
 #   THROTTLE_AUTH_TTL / THROTTLE_AUTH_LIMIT  auth-route rate limit (default 60 / 10)
+#   DB_CONNECTION_LIMIT     Prisma connection pool size (default 10)
 #
 # The self-hosted runner for this pipeline must be registered with the "prod"
 # label, so it does not pick up the dev pipeline. At config.sh time, enter
@@ -249,6 +250,7 @@ jobs:
           POSTGRES_USER=tracker
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB=tracker
+          DB_CONNECTION_LIMIT=${{ vars.DB_CONNECTION_LIMIT || '10' }}
           JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }}
           JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
           JWT_ACCESS_TTL=15m
