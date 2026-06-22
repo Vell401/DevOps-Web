@@ -334,15 +334,15 @@ export function DocsPage() {
           )}
         </aside>
 
-        <main className="min-w-0 flex-1 bg-[#e7e8ec]">
+        <main className="min-w-0 flex-1 bg-paper">
           {loading ? (
-            <div className="flex h-full items-center justify-center gap-2 text-sm text-[#6f747d]">
+            <div className="flex h-full items-center justify-center gap-2 text-sm text-ink-muted">
               <Spinner /> Loading…
             </div>
           ) : !detail ? (
             <EmptyState onCreate={() => setNewSpaceOpen(true)} hasSpaces={spaces.length > 0} />
           ) : !page ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-[#6f747d]">
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-ink-muted">
               <p>Select a page{canWrite ? ' or create one' : ''}.</p>
               {canWrite && (
                 <button onClick={() => void createPage(null)} className="btn-primary text-sm">
@@ -404,14 +404,14 @@ export function DocsPage() {
 function EmptyState({ onCreate, hasSpaces }: { onCreate: () => void; hasSpaces: boolean }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-[#aeb2bb] shadow-[0_1px_2px_rgba(16,18,23,0.05),0_12px_28px_-14px_rgba(16,18,23,0.25)]">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-surface text-ink-subtle shadow-card">
         <Icon.File size={24} />
       </div>
       <div>
-        <div className="font-display text-lg font-semibold text-[#2c2f36]">
+        <div className="font-display text-lg font-semibold text-ink">
           {hasSpaces ? 'Pick a space' : 'No documentation yet'}
         </div>
-        <p className="mt-1 text-sm text-[#6f747d]">
+        <p className="mt-1 text-sm text-ink-muted">
           {hasSpaces
             ? 'Choose a space from the switcher on the left.'
             : 'Create a space to start writing docs.'}
