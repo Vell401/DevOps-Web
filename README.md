@@ -244,10 +244,12 @@ npx prisma migrate dev --name <короткое-описание>
 |---|---|---|---|
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | compose | tracker | Инициализация Postgres |
 | `DATABASE_URL` | backend | (из значений выше) | Строка подключения Prisma |
+| `DB_CONNECTION_LIMIT` | compose | 10 | Размер пула соединений Prisma (дописывается в `DATABASE_URL`). Prisma по умолчанию = cpu*2+1 (~5 на 2 ядрах, виден на графике admin «Server sessions»); поднять до ~10–15 на нагруженной VM |
 | `REDIS_HOST` / `REDIS_PORT` | backend | redis / 6379 | Параметры Redis (rate limiting, Socket.IO адаптер, кэш метрик). Если `REDIS_HOST` не задан — fallback на in-process-хранилища |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | backend | **обязательно сменить в prod** | Ключи подписи JWT |
 | `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | backend | 15m / 7d | Время жизни токенов |
 | `THROTTLE_TTL` / `THROTTLE_LIMIT` | backend | 60 / 120 | Окно (сек) и квота rate-limit |
+| `THROTTLE_AUTH_TTL` / `THROTTLE_AUTH_LIMIT` | backend | 60 / 10 | Отдельный, более строгий лимит для auth-роутов (login/register/refresh), на IP. Поднимать только для нагрузочного теста, затем вернуть |
 | `CORS_ORIGINS` | backend | http://localhost:5173 | Разрешённые origins (через запятую) |
 | `LOG_LEVEL` | backend | info | Уровень логирования Pino |
 | `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` | backend | minio / us-east-1 / tracker-attachments | Параметры объектного хранилища (MinIO в Docker) |
@@ -360,6 +362,9 @@ Traefik или Let's Encrypt + certbot.
   также HTTP-метрики, медленные запросы и срабатывания rate-limit. Данные
   собираются самим приложением и кэшируются (общий кэш через Redis); Docker-сокет
   не используется.
+- **Статус бэкапов:** на том же `/admin/metrics` — карточка restic (последний
+  прогон, успешные бэкапы за 3 дня, глубина хранения, `check`), читается из
+  `status.json`, который пишет хостовый бэкап-джоб (см. [BACKUPS.md](./BACKUPS.md)).
 - **Prometheus `/metrics`:** наружу пока не экспонируется — при необходимости
   добавляется `@willsoto/nestjs-prometheus` за внутренним ACL.
 - **Tracing:** при необходимости — OpenTelemetry SDK в `main.ts` с

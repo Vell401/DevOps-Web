@@ -69,6 +69,21 @@ export class ProjectsService {
     };
   }
 
+  /** A global admin (User.isAdmin) has oversight over every project, even ones
+   *  they neither own nor belong to. One cheap PK lookup, only reached when the
+   *  user is not already an owner/member. */
+  private async isGlobalAdmin(
+    userId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<boolean> {
+    const client = tx ?? this.prisma;
+    const u = await client.user.findUnique({
+      where: { id: userId },
+      select: { isAdmin: true },
+    });
+    return u?.isAdmin ?? false;
+  }
+
   /**
    * Effective role of a user in a project: OWNER, the member-row role, or
    * null when they have no access. Throws 404 when the project is missing.
@@ -89,7 +104,12 @@ export class ProjectsService {
       where: { projectId_userId: { projectId, userId } },
       select: { role: true },
     });
-    return member?.role ?? null;
+    if (member) return member.role;
+    // Global admins get project-ADMIN powers over ANY project (read + full edit
+    // + member/role management + close/reopen), but NOT ownership — deleting the
+    // project stays with its owner (getOwned), so admin oversight can't nuke it.
+    if (await this.isGlobalAdmin(userId, tx)) return ProjectRole.ADMIN;
+    return null;
   }
 
   /** Throws 403 unless the user's effective role is at least `min`. */
@@ -209,6 +229,8 @@ export class ProjectsService {
         select: { role: true },
       });
       myRole = member?.role ?? null;
+      // Global admin → project-ADMIN on any project they're not already in.
+      if (!myRole && (await this.isGlobalAdmin(userId))) myRole = ProjectRole.ADMIN;
     }
     if (!myRole) throw new ForbiddenException();
     return { ...project, myRole };

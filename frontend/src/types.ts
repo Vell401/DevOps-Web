@@ -51,6 +51,19 @@ export interface AdminUser extends User {
   stats: { projects: number; tasks: number; comments: number };
 }
 
+/** One row of the admin-wide project list (GET /admin/projects): every project
+ *  regardless of ownership, with owner, member count and task roll-up. */
+export interface AdminProject {
+  id: string;
+  key: string;
+  name: string;
+  closedAt: string | null;
+  createdAt: string;
+  owner: UserLite;
+  members: number;
+  stats: { total: number; done: number };
+}
+
 export interface LoginEvent {
   id: string;
   success: boolean;
@@ -114,6 +127,10 @@ export interface AdminMetrics {
     repoSizeBytes: number;
     lastCheckOk: boolean | null;
     error: string | null;
+    oldest: string | null;
+    retention: { last: number; daily: number; weekly: number; monthly: number } | null;
+    recentDays: { date: string; db: boolean; minio: boolean; ok: boolean }[];
+    recent: { time: string; tag: string; id: string }[];
   };
   build: {
     version: string;

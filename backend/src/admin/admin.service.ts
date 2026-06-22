@@ -11,6 +11,7 @@ import { AppConfigService } from '../config/app-config.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { RedisService } from '../redis/redis.service';
 import { S3StorageService } from '../storage/s3-storage.service';
+import { MAX_PAGE_SIZE, toPage } from '../common/pagination';
 import { AdminUpdateUserDto } from './dto/update-user.dto';
 
 /** State of a backing service shown on the dashboard. */
@@ -19,6 +20,15 @@ type ServiceState = 'up' | 'down' | 'disabled';
 // A backup run older than this is flagged "stale" (schedule is every 6h, so
 // ~7h means at least one run was missed).
 const BACKUP_STALE_AFTER_MS = 7 * 60 * 60 * 1000;
+// How many recent calendar days to roll up for the dashboard timeline.
+const BACKUP_TIMELINE_DAYS = 3;
+
+/** One restic snapshot as recorded in status.json. */
+export interface BackupSnapshot {
+  time: string;
+  tag: string;
+  id: string;
+}
 
 /** Shape of status.json written by the host restic backup job. */
 interface BackupStatusFile {
@@ -28,6 +38,11 @@ interface BackupStatusFile {
   repoSizeBytes?: number;
   lastCheck?: { ok?: boolean; at?: string };
   error?: string | null;
+  // Enriched fields (present when the host has jq): the recent snapshot log,
+  // the oldest retained snapshot, and the configured retention policy.
+  recent?: BackupSnapshot[];
+  oldest?: string | null;
+  retention?: { last: number; daily: number; weekly: number; monthly: number };
 }
 
 /**
@@ -106,6 +121,80 @@ export class AdminService {
       },
       _count: undefined,
     }));
+  }
+
+  /**
+   * Admin-wide project listing: EVERY project (open + closed), regardless of
+   * ownership or membership — unlike GET /projects, which is scoped to the
+   * caller. Cursor-paginated like the rest of the app, with an optional
+   * open/closed filter and a name/key search.
+   */
+  async listProjects(
+    opts: { closed?: boolean; q?: string; cursor?: string; limit?: number } = {},
+  ) {
+    const limit = opts.limit ?? MAX_PAGE_SIZE;
+    const where: Prisma.ProjectWhereInput = {
+      ...(opts.closed === undefined
+        ? {}
+        : { closedAt: opts.closed ? { not: null } : null }),
+      ...(opts.q
+        ? {
+            OR: [
+              { name: { contains: opts.q, mode: 'insensitive' } },
+              { key: { contains: opts.q, mode: 'insensitive' } },
+              { owner: { name: { contains: opts.q, mode: 'insensitive' } } },
+              { owner: { email: { contains: opts.q, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
+    };
+
+    const rows = await this.prisma.project.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        key: true,
+        name: true,
+        closedAt: true,
+        createdAt: true,
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatarColor: true,
+            avatarKey: true,
+          },
+        },
+        _count: { select: { tasks: true, memberships: true } },
+      },
+      take: limit + 1,
+      ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
+    });
+    // Total matching the filter (for the "N projects" header) — one count query.
+    const total = await this.prisma.project.count({ where });
+
+    const page = toPage(rows, limit);
+    if (!page.items.length) return { items: [], nextCursor: page.nextCursor, total };
+
+    // DONE roll-up for just this page (uses the (projectId, status) index).
+    const done = await this.prisma.task.groupBy({
+      by: ['projectId'],
+      where: { projectId: { in: page.items.map((p) => p.id) }, status: 'DONE' },
+      _count: { _all: true },
+    });
+    const doneByProject = new Map(done.map((d) => [d.projectId, d._count._all]));
+
+    return {
+      items: page.items.map(({ _count, ...p }) => ({
+        ...p,
+        members: _count.memberships,
+        stats: { total: _count.tasks, done: doneByProject.get(p.id) ?? 0 },
+      })),
+      nextCursor: page.nextCursor,
+      total,
+    };
   }
 
   async updateUser(
@@ -321,22 +410,27 @@ export class AdminService {
     } catch {
       raw = null;
     }
-    if (!raw || !raw.lastRun) {
-      return {
-        status: 'unknown' as const,
-        lastRunAt: null,
-        ageSec: null,
-        ok: false,
-        snapshots: 0,
-        repoSizeBytes: 0,
-        lastCheckOk: null as boolean | null,
-        error: null as string | null,
-      };
-    }
+    const empty = {
+      status: 'unknown' as const,
+      lastRunAt: null,
+      ageSec: null,
+      ok: false,
+      snapshots: 0,
+      repoSizeBytes: 0,
+      lastCheckOk: null as boolean | null,
+      error: null as string | null,
+      oldest: null as string | null,
+      retention: null as BackupStatusFile['retention'] | null,
+      recentDays: [] as { date: string; db: boolean; minio: boolean; ok: boolean }[],
+      recent: [] as BackupSnapshot[],
+    };
+    if (!raw || !raw.lastRun) return empty;
+
     const ageMs = Date.now() - new Date(raw.lastRun).getTime();
     const status: 'ok' | 'failed' | 'stale' =
       raw.ok === false ? 'failed' : ageMs > BACKUP_STALE_AFTER_MS ? 'stale' : 'ok';
     return {
+      ...empty,
       status,
       lastRunAt: raw.lastRun,
       ageSec: Math.max(0, Math.floor(ageMs / 1000)),
@@ -345,7 +439,36 @@ export class AdminService {
       repoSizeBytes: raw.repoSizeBytes ?? 0,
       lastCheckOk: raw.lastCheck?.ok ?? null,
       error: raw.error ?? null,
+      oldest: raw.oldest ?? null,
+      retention: raw.retention ?? null,
+      recentDays: this.rollUpBackupDays(raw.recent ?? []),
+      recent: (raw.recent ?? []).slice(0, 12),
     };
+  }
+
+  /**
+   * Per-day success rollup for the last few calendar days (UTC), so the admin
+   * card can show a "last 3 days" tick row. A day counts as a successful backup
+   * when it has both a `db` and a `minio` snapshot.
+   */
+  private rollUpBackupDays(
+    recent: BackupSnapshot[],
+  ): { date: string; db: boolean; minio: boolean; ok: boolean }[] {
+    const byDay = new Map<string, { db: boolean; minio: boolean }>();
+    for (const s of recent) {
+      const day = s.time.slice(0, 10); // YYYY-MM-DD (snapshots are UTC ISO)
+      const cur = byDay.get(day) ?? { db: false, minio: false };
+      if (s.tag === 'db') cur.db = true;
+      if (s.tag === 'minio') cur.minio = true;
+      byDay.set(day, cur);
+    }
+    const out: { date: string; db: boolean; minio: boolean; ok: boolean }[] = [];
+    for (let i = 0; i < BACKUP_TIMELINE_DAYS; i++) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      const hit = byDay.get(d) ?? { db: false, minio: false };
+      out.push({ date: d, db: hit.db, minio: hit.minio, ok: hit.db && hit.minio });
+    }
+    return out;
   }
 
   /** DB / Redis / object-store probes, computed at most once per cache window

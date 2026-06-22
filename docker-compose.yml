@@ -71,7 +71,9 @@ services:
       PORT: 3000
       LOG_LEVEL: ${LOG_LEVEL:-debug}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-tracker}:${POSTGRES_PASSWORD:-tracker}@postgres:5432/${POSTGRES_DB:-tracker}?schema=public
+      # Prisma connection pool size (default cpu*2+1 ≈ 5 on 2 cores); set
+      # explicitly so it's tunable. Override with DB_CONNECTION_LIMIT in .env.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tracker}:${POSTGRES_PASSWORD:-tracker}@postgres:5432/${POSTGRES_DB:-tracker}?schema=public&connection_limit=${DB_CONNECTION_LIMIT:-10}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev_access_secret_change_me}
@@ -80,6 +82,10 @@ services:
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
       THROTTLE_TTL: ${THROTTLE_TTL:-60}
       THROTTLE_LIMIT: ${THROTTLE_LIMIT:-120}
+      # Stricter per-IP throttle for auth routes (login/register/refresh).
+      # Defaults to 10/60s; raise only in a load-test environment.
+      THROTTLE_AUTH_TTL: ${THROTTLE_AUTH_TTL:-60}
+      THROTTLE_AUTH_LIMIT: ${THROTTLE_AUTH_LIMIT:-10}
       S3_ENDPOINT: http://minio:9000
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET: ${S3_BUCKET:-tracker-attachments}

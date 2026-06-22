@@ -4,6 +4,7 @@ import type {
   ActivityStats,
   ActivityType,
   AdminMetrics,
+  AdminProject,
   AdminStats,
   AdminUser,
   AppNotification,
@@ -258,6 +259,16 @@ export interface AdminUpdateUserBody {
 export const adminApi = {
   stats: () => api.get<AdminStats>('/admin/stats'),
   metrics: () => api.get<AdminMetrics>('/admin/metrics'),
+  /** One page of ALL projects (open + closed, any owner); pass the previous
+   *  page's cursor to continue. */
+  listProjects: (params: { closed?: boolean; q?: string; cursor?: string } = {}) =>
+    api.get<{ items: AdminProject[]; nextCursor: string | null; total: number }>('/admin/projects', {
+      params: {
+        ...(params.closed !== undefined ? { closed: String(params.closed) } : {}),
+        ...(params.q ? { q: params.q } : {}),
+        ...(params.cursor ? { cursor: params.cursor } : {}),
+      },
+    }),
   listUsers: () => api.get<AdminUser[]>('/admin/users'),
   userLogins: (id: string) => api.get<LoginEvent[]>(`/admin/users/${id}/logins`),
   updateUser: (id: string, body: AdminUpdateUserBody) =>

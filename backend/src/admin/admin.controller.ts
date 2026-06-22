@@ -7,12 +7,14 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { AdminService } from './admin.service';
 import { AdminUpdateUserDto } from './dto/update-user.dto';
+import { AdminProjectsQueryDto } from './dto/admin-projects-query.dto';
 import { JwtAccessGuard } from '../auth/guards/jwt-access.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import {
@@ -35,6 +37,11 @@ export class AdminController {
   @Get('metrics')
   metrics() {
     return this.admin.metrics();
+  }
+
+  @Get('projects')
+  listProjects(@Query() query: AdminProjectsQueryDto) {
+    return this.admin.listProjects(query);
   }
 
   @Get('users')
