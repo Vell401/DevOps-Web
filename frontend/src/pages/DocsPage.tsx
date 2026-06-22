@@ -14,7 +14,7 @@ import { Dialog } from '../ui/Dialog';
 import { useToast } from '../ui/Toast';
 import { apiError } from '../lib/apiError';
 import { useDocSpaceRealtime, useUserRealtime } from '../lib/realtime';
-import { DocTree } from '../components/docs/DocTree';
+import { DocTree, type DropZone } from '../components/docs/DocTree';
 import { DocEditor } from '../components/docs/DocEditor';
 import { DocSpaceSettingsDialog } from '../components/docs/DocSpaceSettingsDialog';
 
@@ -135,20 +135,74 @@ export function DocsPage() {
     }
   };
 
+  // Drag-and-drop reorder / reparent in the tree.
+  const movePage = async (dragId: string, targetId: string, zone: DropZone) => {
+    if (!detail || !spaceId || dragId === targetId) return;
+    const pages = detail.pages;
+    const target = pages.find((p) => p.id === targetId);
+    const dragged = pages.find((p) => p.id === dragId);
+    if (!target || !dragged) return;
+
+    const isAncestor = (ancestorId: string, nodeId: string | null): boolean => {
+      let cur = nodeId;
+      for (let i = 0; i < 1000 && cur; i++) {
+        if (cur === ancestorId) return true;
+        cur = pages.find((p) => p.id === cur)?.parentId ?? null;
+      }
+      return false;
+    };
+
+    let newParentId: string | null;
+    let newPosition: number;
+    if (zone === 'inside') {
+      newParentId = targetId;
+      const kids = pages
+        .filter((p) => p.parentId === targetId)
+        .sort((a, b) => a.position - b.position);
+      newPosition = (kids.length ? kids[kids.length - 1].position : 0) + 1;
+    } else {
+      newParentId = target.parentId;
+      const sibs = pages
+        .filter((p) => p.parentId === target.parentId && p.id !== dragId)
+        .sort((a, b) => a.position - b.position);
+      const idx = sibs.findIndex((p) => p.id === targetId);
+      if (zone === 'before') {
+        const prev = sibs[idx - 1];
+        newPosition = prev ? (prev.position + target.position) / 2 : target.position - 1;
+      } else {
+        const next = sibs[idx + 1];
+        newPosition = next ? (target.position + next.position) / 2 : target.position + 1;
+      }
+    }
+
+    if (newParentId && (newParentId === dragId || isAncestor(dragId, newParentId))) {
+      toast.push("Can't move a page into its own sub-tree", 'error');
+      return;
+    }
+    if (dragged.parentId === newParentId && dragged.position === newPosition) return;
+
+    try {
+      await docsApi.updatePage(dragId, { parentId: newParentId, position: newPosition });
+      await loadSpace(spaceId);
+    } catch (err) {
+      toast.push(apiError(err, 'Could not move page'), 'error');
+    }
+  };
+
   const space = spaces.find((s) => s.id === spaceId) ?? null;
 
   return (
     <>
       <Topbar crumbs={[{ label: 'Docs' }]} />
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-surface-sunken">
-          <div className="flex items-center gap-1 px-3 py-3">
+        <aside className="flex w-72 shrink-0 flex-col bg-paper">
+          <div className="flex items-center gap-1 px-3 pb-2 pt-3">
             <Popover
-              className="min-w-[240px]"
+              className="min-w-[244px]"
               trigger={({ toggle }) => (
                 <button
                   onClick={toggle}
-                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm font-medium text-ink hover:bg-surface-hover"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm font-semibold text-ink transition hover:bg-surface-hover/60"
                 >
                   <Icon.File size={14} className="shrink-0 text-ink-subtle" />
                   <span className="truncate">{space?.name ?? 'Documentation'}</span>
@@ -165,13 +219,14 @@ export function DocsPage() {
                       onClick={() => {
                         close();
                         setPageId(null);
+                        setQuery('');
                         setSpaceId(s.id);
                       }}
                     >
                       <span className="flex min-w-0 flex-col">
                         <span className="truncate">{s.name}</span>
                         <span className="text-[10px] text-ink-subtle">
-                          {s.pageCount} page{s.pageCount === 1 ? '' : 's'}
+                          {s.pageCount} page{s.pageCount === 1 ? '' : 's'} · {s.myRole.toLowerCase()}
                         </span>
                       </span>
                     </PopoverItem>
@@ -179,7 +234,7 @@ export function DocsPage() {
                   {spaces.length === 0 && (
                     <div className="px-2 py-1.5 text-xs text-ink-subtle">No spaces yet</div>
                   )}
-                  <div className="my-1 border-t border-line" />
+                  <div className="my-1 h-px bg-line/60" />
                   <PopoverItem
                     onClick={() => {
                       close();
@@ -195,7 +250,7 @@ export function DocsPage() {
             {detail && (
               <button
                 onClick={() => setSettingsOpen(true)}
-                className="rounded-md p-1.5 text-ink-subtle hover:bg-surface-hover hover:text-ink"
+                className="shrink-0 rounded-md p-1.5 text-ink-subtle transition hover:bg-surface-hover/60 hover:text-ink"
                 title="Space settings"
               >
                 <Icon.Dots size={14} />
@@ -209,35 +264,35 @@ export function DocsPage() {
                 <div className="relative">
                   <Icon.Search
                     size={13}
-                    className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-ink-subtle"
+                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle"
                   />
                   <input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Search this space…"
-                    className="w-full rounded-md bg-surface-deep py-1.5 pl-7 pr-2 text-xs text-ink placeholder:text-ink-subtle focus-visible:shadow-focus"
+                    className="w-full rounded-lg bg-surface-deep py-2 pl-8 pr-2 text-xs text-ink placeholder:text-ink-subtle focus-visible:shadow-focus"
                   />
                 </div>
               </div>
-              <div className="flex items-center justify-between px-4 pb-1">
+              <div className="flex items-center justify-between px-4 pb-1 pt-1">
                 <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-ink-subtle">
                   Pages
                 </span>
                 {canWrite && (
                   <button
                     onClick={() => void createPage(null)}
-                    className="rounded-sm p-0.5 text-ink-muted hover:bg-surface-hover hover:text-ink"
+                    className="rounded-sm p-0.5 text-ink-muted transition hover:bg-surface-hover hover:text-ink"
                     title="New page"
                   >
                     <Icon.Plus size={14} />
                   </button>
                 )}
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 scrollbar-thin">
+              <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 scrollbar-thin">
                 {results ? (
-                  <ul className="space-y-0.5">
+                  <ul className="space-y-px">
                     {results.length === 0 && (
-                      <li className="px-2 py-1.5 text-xs text-ink-subtle">No matches</li>
+                      <li className="px-2 py-2 text-xs text-ink-subtle">No matches</li>
                     )}
                     {results.map((r) => (
                       <li key={r.id}>
@@ -246,11 +301,18 @@ export function DocsPage() {
                             setPageId(r.id);
                             setQuery('');
                           }}
-                          className="w-full rounded-md px-2 py-1.5 text-left hover:bg-surface-hover/60"
+                          className="w-full rounded-md px-2.5 py-1.5 text-left transition hover:bg-surface-hover/50"
                         >
-                          <div className="truncate text-sm text-ink">{r.title || 'Untitled'}</div>
+                          <div className="flex items-center gap-1.5">
+                            <Icon.File size={12} className="shrink-0 text-ink-subtle" />
+                            <span className="truncate text-sm text-ink-muted">
+                              {r.title || 'Untitled'}
+                            </span>
+                          </div>
                           {r.snippet && (
-                            <div className="truncate text-[11px] text-ink-subtle">{r.snippet}</div>
+                            <div className="mt-0.5 truncate pl-[18px] text-[11px] text-ink-subtle">
+                              {r.snippet}
+                            </div>
                           )}
                         </button>
                       </li>
@@ -264,6 +326,7 @@ export function DocsPage() {
                     onSelect={setPageId}
                     onCreateChild={(pid) => void createPage(pid)}
                     onDelete={(id) => void deletePage(id)}
+                    onMove={(d, t, z) => void movePage(d, t, z)}
                   />
                 )}
               </div>
@@ -271,19 +334,19 @@ export function DocsPage() {
           )}
         </aside>
 
-        <main className="min-w-0 flex-1">
+        <main className="min-w-0 flex-1 bg-[#e7e8ec]">
           {loading ? (
-            <div className="flex h-full items-center justify-center gap-2 text-sm text-ink-muted">
+            <div className="flex h-full items-center justify-center gap-2 text-sm text-[#6f747d]">
               <Spinner /> Loading…
             </div>
           ) : !detail ? (
             <EmptyState onCreate={() => setNewSpaceOpen(true)} hasSpaces={spaces.length > 0} />
           ) : !page ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-ink-muted">
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-[#6f747d]">
               <p>Select a page{canWrite ? ' or create one' : ''}.</p>
               {canWrite && (
-                <button onClick={() => void createPage(null)} className="btn-secondary text-xs">
-                  <Icon.Plus size={13} /> New page
+                <button onClick={() => void createPage(null)} className="btn-primary text-sm">
+                  <Icon.Plus size={14} /> New page
                 </button>
               )}
             </div>
@@ -341,12 +404,14 @@ export function DocsPage() {
 function EmptyState({ onCreate, hasSpaces }: { onCreate: () => void; hasSpaces: boolean }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-      <Icon.File size={28} className="text-ink-subtle" />
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-[#aeb2bb] shadow-[0_1px_2px_rgba(16,18,23,0.05),0_12px_28px_-14px_rgba(16,18,23,0.25)]">
+        <Icon.File size={24} />
+      </div>
       <div>
-        <div className="font-display text-lg text-ink">
+        <div className="font-display text-lg font-semibold text-[#2c2f36]">
           {hasSpaces ? 'Pick a space' : 'No documentation yet'}
         </div>
-        <p className="mt-1 text-sm text-ink-muted">
+        <p className="mt-1 text-sm text-[#6f747d]">
           {hasSpaces
             ? 'Choose a space from the switcher on the left.'
             : 'Create a space to start writing docs.'}

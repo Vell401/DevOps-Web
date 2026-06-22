@@ -84,29 +84,35 @@ export function DocEditor({ page, canWrite, onTitleSaved }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-line px-8 py-4">
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onBlur={() => void saveTitle()}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-          }}
-          disabled={!canWrite}
-          placeholder="Untitled"
-          className="w-full bg-transparent font-display text-2xl font-semibold text-ink outline-none placeholder:text-ink-subtle"
-        />
-        <div className="mt-1 h-4 text-[11px] text-ink-subtle">
-          {saving ? 'Saving…' : canWrite ? '' : 'Read-only'}
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="mx-auto w-full max-w-[860px] px-6 pb-20 pt-8">
+          <div className="mb-3 flex h-4 items-center justify-end text-[11px] font-medium text-[#7c828b]">
+            {saving ? 'Saving…' : canWrite ? '' : 'Read-only'}
+          </div>
+          <article className="animate-[docIn_240ms_ease-out] overflow-hidden rounded-[18px] bg-white pb-16 shadow-[0_1px_2px_rgba(16,18,23,0.05),0_24px_50px_-22px_rgba(16,18,23,0.28)]">
+            <div className="px-[54px] pt-14 pb-1">
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onBlur={() => void saveTitle()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                }}
+                disabled={!canWrite}
+                placeholder="Untitled"
+                className="w-full bg-transparent font-display text-[34px] font-bold leading-[1.15] tracking-tight text-[#1c1e24] outline-none placeholder:text-[#c7cad1]"
+              />
+            </div>
+            <div className="doc-prose">
+              <BlockNoteView
+                editor={editor}
+                editable={canWrite}
+                theme="light"
+                onChange={scheduleSave}
+              />
+            </div>
+          </article>
         </div>
-      </div>
-      <div className="flex-1 overflow-y-auto py-4 scrollbar-thin">
-        <BlockNoteView
-          editor={editor}
-          editable={canWrite}
-          theme="dark"
-          onChange={scheduleSave}
-        />
       </div>
     </div>
   );
