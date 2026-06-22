@@ -85,12 +85,12 @@ export function DocEditor({ page, canWrite, onTitleSaved }: Props) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        <div className="mx-auto w-full max-w-[960px] px-8 pb-24 pt-8">
-          <div className="mb-3 flex h-4 items-center justify-end text-[11px] font-medium text-ink-subtle">
+        <div className="mx-auto w-full max-w-[860px] px-6 pb-20 pt-8">
+          <div className="mb-3 flex h-4 items-center justify-end text-[11px] font-medium text-[#7c828b]">
             {saving ? 'Saving…' : canWrite ? '' : 'Read-only'}
           </div>
-          <article className="min-h-[72vh] animate-[docIn_240ms_ease-out] overflow-hidden rounded-[20px] bg-[#EAE9E5] pb-16 shadow-[0_2px_4px_rgba(0,0,0,0.18),0_30px_64px_-24px_rgba(0,0,0,0.55)]">
-            <div className="px-[54px] pt-16 pb-1">
+          <article className="animate-[docIn_240ms_ease-out] overflow-hidden rounded-[18px] bg-white pb-16 shadow-[0_1px_2px_rgba(16,18,23,0.05),0_24px_50px_-22px_rgba(16,18,23,0.28)]">
+            <div className="px-[54px] pt-14 pb-1">
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -100,7 +100,7 @@ export function DocEditor({ page, canWrite, onTitleSaved }: Props) {
                 }}
                 disabled={!canWrite}
                 placeholder="Untitled"
-                className="w-full bg-transparent font-display text-[34px] font-bold leading-[1.15] tracking-tight text-[#1c1e24] outline-none placeholder:text-[#b8b5ac]"
+                className="w-full bg-transparent font-display text-[34px] font-bold leading-[1.15] tracking-tight text-[#1c1e24] outline-none placeholder:text-[#c7cad1]"
               />
             </div>
             <div className="doc-prose">
