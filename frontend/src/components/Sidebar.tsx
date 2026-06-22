@@ -92,6 +92,7 @@ export function Sidebar({ onCreateProject, refreshKey, unreadNotifications }: Pr
           <NavLinkItem to="/projects" icon={<Icon.Layers size={14} />} label="All projects" end />
           <NavLinkItem to="/my-tasks" icon={<Icon.Check size={14} />} label="My tasks" />
           <NavLinkItem to="/activity" icon={<Icon.Activity size={14} />} label="Activity" />
+          <NavLinkItem to="/docs" icon={<Icon.File size={14} />} label="Docs" />
           {user?.isAdmin && <AdminNavSection />}
         </NavSection>
 

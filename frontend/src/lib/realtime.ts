@@ -11,10 +11,13 @@ interface ServerEvents {
   'comment-deleted': (payload: { taskId: string; commentId: string }) => void;
   'attachment-added': (payload: { taskId: string; attachment: Attachment }) => void;
   'attachment-removed': (payload: { taskId: string; attachmentId: string }) => void;
+  'doc-tree-changed': (payload: { spaceId: string }) => void;
+  'doc-page-updated': (payload: { spaceId: string; pageId: string }) => void;
 }
 
 interface UserEvents {
   'projects-changed': () => void;
+  'docspaces-changed': () => void;
   notification: (n: AppNotification) => void;
 }
 
@@ -90,6 +93,40 @@ export function useProjectRealtime(
     // not in the deps — consumers should keep them stable (useCallback).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+}
+
+/**
+ * Subscribe to events for one doc space (tree/page changes). Mirrors
+ * useProjectRealtime — manages the room subscription + handler attachment.
+ */
+export function useDocSpaceRealtime(
+  spaceId: string | undefined,
+  handlers: Handlers,
+) {
+  useEffect(() => {
+    if (!spaceId) return;
+    const socket = getSocket();
+    if (!socket) return;
+
+    const subscribe = () => socket.emit('subscribe-docspace', spaceId);
+    if (socket.connected) subscribe();
+    else socket.once('connect', subscribe);
+
+    const entries = Object.entries(handlers) as Array<
+      [keyof ServerEvents, ServerEvents[keyof ServerEvents]]
+    >;
+    for (const [ev, fn] of entries) {
+      socket.on(ev as string, fn as (...args: unknown[]) => void);
+    }
+
+    return () => {
+      socket.emit('unsubscribe-docspace', spaceId);
+      for (const [ev, fn] of entries) {
+        socket.off(ev as string, fn as (...args: unknown[]) => void);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spaceId]);
 }
 
 /**

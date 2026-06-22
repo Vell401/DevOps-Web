@@ -9,7 +9,7 @@ import { Dialog } from '../ui/Dialog';
 import { useToast } from '../ui/Toast';
 import { useAuth } from '../auth/AuthContext';
 import { STATUS_META } from '../lib/meta';
-import { timeAgo } from '../lib/format';
+import { timeAgo, formatDateTime } from '../lib/format';
 import { cn } from '../lib/cn';
 import { AdminTabs, SectionTitle, StatCard, Th, Td } from './admin-ui';
 
@@ -222,7 +222,9 @@ export function AdminPage() {
                         </span>
                       </Td>
                       <Td>
-                        <span className="text-xs text-ink-muted">{timeAgo(u.createdAt)}</span>
+                        <span className="text-xs text-ink-muted" title={u.createdAt}>
+                          {formatDateTime(u.createdAt)}
+                        </span>
                       </Td>
                       <Td className="text-right">
                         <div className="flex items-center justify-end gap-1">

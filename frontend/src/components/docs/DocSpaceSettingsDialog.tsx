@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { projectsApi, usersApi } from '../../api/endpoints';
-import type { ProjectMemberInfo, ProjectRole, UserLite } from '../../types';
+import { docsApi, usersApi } from '../../api/endpoints';
+import type { DocMemberInfo, DocRole, DocSpaceDetail, UserLite } from '../../types';
 import { Dialog } from '../../ui/Dialog';
 import { Avatar } from '../../ui/Avatar';
 import { Icon } from '../../ui/Icon';
@@ -8,101 +8,102 @@ import { Spinner } from '../../ui/Spinner';
 import { Popover, PopoverItem } from '../../ui/Popover';
 import { useToast } from '../../ui/Toast';
 import { apiError } from '../../lib/apiError';
-import { cn } from '../../lib/cn';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  projectId: string;
-  ownerId: string;
-  /** ADMIN+ on an open project: add/remove members and change roles. */
-  canManage: boolean;
-  onChanged?: () => void;
+  space: DocSpaceDetail;
+  onChanged: () => void;
+  onDeleted: () => void;
 }
 
-const ROLE_OPTIONS: { value: ProjectRole; label: string; hint: string }[] = [
-  { value: 'VIEWER', label: 'Viewer', hint: 'Read & comment only' },
-  { value: 'EDITOR', label: 'Editor', hint: 'Create & edit tasks' },
-  { value: 'ADMIN', label: 'Admin', hint: 'Manage members & project' },
+const ROLE_OPTIONS: { value: DocRole; label: string; hint: string }[] = [
+  { value: 'READER', label: 'Reader', hint: 'View only' },
+  { value: 'WRITER', label: 'Writer', hint: 'View & edit pages' },
 ];
+const ROLE_LABEL: Record<DocRole, string> = { READER: 'Reader', WRITER: 'Writer' };
 
-const ROLE_LABEL: Record<ProjectRole, string> = {
-  VIEWER: 'Viewer',
-  EDITOR: 'Editor',
-  ADMIN: 'Admin',
-};
-
-export function ProjectMembersDialog({
-  open,
-  onClose,
-  projectId,
-  ownerId,
-  canManage,
-  onChanged,
-}: Props) {
-  const [members, setMembers] = useState<ProjectMemberInfo[]>([]);
+export function DocSpaceSettingsDialog({ open, onClose, space, onChanged, onDeleted }: Props) {
+  const toast = useToast();
+  const canManage = space.myRole === 'OWNER';
+  const [members, setMembers] = useState<DocMemberInfo[]>([]);
   const [allUsers, setAllUsers] = useState<UserLite[]>([]);
   const [loading, setLoading] = useState(true);
+  const [name, setName] = useState(space.name);
   const [addQuery, setAddQuery] = useState('');
-  const toast = useToast();
-
-  const reload = async () => {
-    setLoading(true);
-    try {
-      const [m, u] = await Promise.all([
-        projectsApi.listMembers(projectId),
-        usersApi.list(),
-      ]);
-      setMembers(m.data);
-      setAllUsers(u.data);
-    } catch {
-      toast.push('Could not load members', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
-    if (open) void reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, projectId]);
+    if (!open) return;
+    setName(space.name);
+    let alive = true;
+    setLoading(true);
+    Promise.all([docsApi.listMembers(space.id), usersApi.list()])
+      .then(([m, u]) => {
+        if (alive) {
+          setMembers(m.data);
+          setAllUsers(u.data);
+        }
+      })
+      .catch(() => alive && toast.push('Could not load members', 'error'))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [open, space.id, space.name, toast]);
 
-  const owner = allUsers.find((u) => u.id === ownerId);
+  const owner = space.owner;
   const addable = allUsers.filter(
-    (u) => u.id !== ownerId && !members.some((m) => m.id === u.id),
+    (u) => u.id !== space.ownerId && !members.some((m) => m.id === u.id),
   );
 
+  const saveName = async () => {
+    const n = name.trim();
+    if (!n || n === space.name) return;
+    try {
+      await docsApi.updateSpace(space.id, { name: n });
+      onChanged();
+      toast.push('Renamed', 'success');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not rename'), 'error');
+    }
+  };
   const onAdd = async (userId: string) => {
     try {
-      // New people start as Editor — the everyday collaborator role; the
-      // dropdown on their row changes it afterwards.
-      const { data } = await projectsApi.addMember(projectId, userId);
+      const { data } = await docsApi.addMember(space.id, userId);
       setMembers(data);
-      onChanged?.();
-      toast.push('Member added as Editor', 'success');
+      setAddQuery('');
+      onChanged();
+      toast.push('Member added as Writer', 'success');
     } catch (err) {
       toast.push(apiError(err, 'Could not add member'), 'error');
     }
   };
-
-  const onRole = async (memberId: string, role: ProjectRole) => {
+  const onRole = async (memberId: string, role: DocRole) => {
     try {
-      const { data } = await projectsApi.updateMemberRole(projectId, memberId, role);
+      const { data } = await docsApi.updateMember(space.id, memberId, role);
       setMembers(data);
-      onChanged?.();
     } catch (err) {
       toast.push(apiError(err, 'Could not change role'), 'error');
     }
   };
-
-  const onRemove = async (userId: string) => {
+  const onRemove = async (memberId: string) => {
     try {
-      const { data } = await projectsApi.removeMember(projectId, userId);
+      const { data } = await docsApi.removeMember(space.id, memberId);
       setMembers(data);
-      onChanged?.();
       toast.push('Member removed', 'success');
     } catch (err) {
       toast.push(apiError(err, 'Could not remove member'), 'error');
+    }
+  };
+  const onDelete = async () => {
+    if (!confirm(`Delete the space "${space.name}" and all its pages? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await docsApi.deleteSpace(space.id);
+      onDeleted();
+    } catch (err) {
+      toast.push(apiError(err, 'Could not delete space'), 'error');
     }
   };
 
@@ -110,8 +111,8 @@ export function ProjectMembersDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Project members"
-      description="Viewers read and comment, Editors work with tasks, Admins also manage members and the project itself. The owner is implicit and cannot be removed."
+      title="Space settings"
+      description="The creator invites people as Reader (view) or Writer (edit). The owner is implicit and can't be removed."
       width={480}
     >
       {loading ? (
@@ -119,30 +120,49 @@ export function ProjectMembersDialog({
           <Spinner /> Loading…
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
+          {canManage && (
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-ink-subtle">
+                Name
+              </span>
+              <div className="flex gap-2">
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="input flex-1"
+                  maxLength={120}
+                />
+                <button
+                  onClick={() => void saveName()}
+                  className="btn-secondary text-xs"
+                  disabled={!name.trim() || name.trim() === space.name}
+                >
+                  Save
+                </button>
+              </div>
+            </label>
+          )}
+
           <div>
             <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-ink-subtle">
               People ({members.length + 1})
             </div>
             <ul className="space-y-1">
-              {owner && (
-                <li className="flex items-center gap-2.5 rounded-md bg-surface-deep px-3 py-2">
-                  <Avatar
-                    name={owner.name}
-                    color={owner.avatarColor}
-                    size="sm"
-                    userId={owner.id}
-                    avatarKey={owner.avatarKey}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm text-ink">{owner.name}</div>
-                    <div className="truncate text-[11px] text-ink-subtle">
-                      {owner.email}
-                    </div>
-                  </div>
-                  <span className="chip bg-blurple-soft text-[#A8B0F8]">Owner</span>
-                </li>
-              )}
+              <li className="flex items-center gap-2.5 rounded-md bg-surface-deep px-3 py-2">
+                <Avatar
+                  name={owner.name}
+                  color={owner.avatarColor}
+                  size="sm"
+                  userId={owner.id}
+                  avatarKey={owner.avatarKey}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm text-ink">{owner.name}</div>
+                  <div className="truncate text-[11px] text-ink-subtle">{owner.email}</div>
+                </div>
+                <span className="chip bg-blurple-soft text-[#A8B0F8]">Owner</span>
+              </li>
               {members.map((m) => (
                 <li
                   key={m.id}
@@ -164,11 +184,7 @@ export function ProjectMembersDialog({
                       portal
                       align="end"
                       trigger={({ toggle }) => (
-                        <button
-                          onClick={toggle}
-                          className="btn-secondary h-7 px-2 text-xs"
-                          aria-label={`Change role of ${m.name}`}
-                        >
+                        <button onClick={toggle} className="btn-secondary h-7 px-2 text-xs">
                           {ROLE_LABEL[m.role]}
                           <Icon.Caret size={10} />
                         </button>
@@ -187,9 +203,7 @@ export function ProjectMembersDialog({
                             >
                               <span className="flex flex-col">
                                 <span>{r.label}</span>
-                                <span className="text-[10px] text-ink-subtle">
-                                  {r.hint}
-                                </span>
+                                <span className="text-[10px] text-ink-subtle">{r.hint}</span>
                               </span>
                             </PopoverItem>
                           ))}
@@ -197,16 +211,7 @@ export function ProjectMembersDialog({
                       )}
                     </Popover>
                   ) : (
-                    <span
-                      className={cn(
-                        'chip',
-                        m.role === 'ADMIN'
-                          ? 'bg-chip-purple text-ink'
-                          : 'bg-chip-gray text-ink-muted',
-                      )}
-                    >
-                      {ROLE_LABEL[m.role]}
-                    </span>
+                    <span className="chip bg-chip-gray text-ink-muted">{ROLE_LABEL[m.role]}</span>
                   )}
                   {canManage && (
                     <button
@@ -239,8 +244,8 @@ export function ProjectMembersDialog({
                   >
                     <Icon.Plus size={12} />
                     {addable.length === 0
-                      ? 'Everyone is already in this project'
-                      : 'Pick a user to invite (joins as Editor)'}
+                      ? 'Everyone is already in this space'
+                      : 'Invite a user (joins as Writer)'}
                   </button>
                 )}
               >
@@ -272,7 +277,6 @@ export function ProjectMembersDialog({
                           key={u.id}
                           onClick={() => {
                             close();
-                            setAddQuery('');
                             void onAdd(u.id);
                           }}
                           icon={
@@ -295,6 +299,17 @@ export function ProjectMembersDialog({
                   );
                 }}
               </Popover>
+            </div>
+          )}
+
+          {canManage && (
+            <div className="border-t border-line pt-3">
+              <button
+                onClick={() => void onDelete()}
+                className="btn-ghost text-xs text-[#883128] hover:bg-chip-red/40"
+              >
+                <Icon.Trash size={12} /> Delete space
+              </button>
             </div>
           )}
         </div>

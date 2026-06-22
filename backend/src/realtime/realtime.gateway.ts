@@ -15,6 +15,7 @@ import { Server, Socket } from 'socket.io';
 import { AppConfigService } from '../config/app-config.service';
 import { ProjectsService } from '../projects/projects.service';
 import { MetricsService } from '../metrics/metrics.service';
+import { PrismaService } from '../prisma/prisma.service';
 import type { JwtPayload } from '../auth/auth.service';
 
 interface AuthedSocket extends Socket {
@@ -57,6 +58,7 @@ export class RealtimeGateway
     @Inject(forwardRef(() => ProjectsService))
     private readonly projects: ProjectsService,
     private readonly metrics: MetricsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   afterInit() {
@@ -140,6 +142,45 @@ export class RealtimeGateway
     await client.leave(roomFor(projectId));
   }
 
+  @SubscribeMessage('subscribe-docspace')
+  async subscribeDocSpace(
+    @ConnectedSocket() client: AuthedSocket,
+    @MessageBody() spaceId: string,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const userId = client.data.userId;
+    if (!userId) return { ok: false, reason: 'unauthorized' };
+    if (await this.canAccessDocSpace(spaceId, userId)) {
+      await client.join(docRoom(spaceId));
+      return { ok: true };
+    }
+    return { ok: false, reason: 'forbidden' };
+  }
+
+  @SubscribeMessage('unsubscribe-docspace')
+  async unsubscribeDocSpace(
+    @ConnectedSocket() client: AuthedSocket,
+    @MessageBody() spaceId: string,
+  ): Promise<void> {
+    await client.leave(docRoom(spaceId));
+  }
+
+  // Lightweight access check (owner OR member) done here via Prisma rather than
+  // DocsService, to avoid a Realtime <-> Docs module cycle.
+  private async canAccessDocSpace(spaceId: string, userId: string): Promise<boolean> {
+    const space = await this.prisma.docSpace
+      .findUnique({ where: { id: spaceId }, select: { ownerId: true } })
+      .catch(() => null);
+    if (!space) return false;
+    if (space.ownerId === userId) return true;
+    const member = await this.prisma.docSpaceMember
+      .findUnique({
+        where: { spaceId_userId: { spaceId, userId } },
+        select: { userId: true },
+      })
+      .catch(() => null);
+    return !!member;
+  }
+
   // ---- broadcast helpers ----
 
   emitTaskUpserted(projectId: string, task: unknown) {
@@ -196,6 +237,25 @@ export class RealtimeGateway
       this.server.to(userRoom(uid)).emit('projects-changed');
     }
   }
+
+  // ---- docs ----
+
+  /** Page tree changed (page added/renamed/moved/deleted) in a doc space. */
+  emitDocTreeChanged(spaceId: string) {
+    this.server.to(docRoom(spaceId)).emit('doc-tree-changed', { spaceId });
+  }
+
+  /** A page's content was saved — anyone viewing it should reload. */
+  emitDocPageUpdated(spaceId: string, pageId: string) {
+    this.server.to(docRoom(spaceId)).emit('doc-page-updated', { spaceId, pageId });
+  }
+
+  /** A user's set of visible doc spaces changed (created / invited / removed). */
+  emitDocSpacesChangedForUsers(userIds: string[]) {
+    for (const uid of [...new Set(userIds)]) {
+      this.server.to(userRoom(uid)).emit('docspaces-changed');
+    }
+  }
 }
 
 function roomFor(projectId: string): string {
@@ -204,4 +264,8 @@ function roomFor(projectId: string): string {
 
 function userRoom(userId: string): string {
   return `user:${userId}`;
+}
+
+function docRoom(spaceId: string): string {
+  return `docspace:${spaceId}`;
 }
