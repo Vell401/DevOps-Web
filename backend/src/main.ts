@@ -5,6 +5,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import helmet from 'helmet';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { AppConfigService } from './config/app-config.service';
 import { RedisIoAdapter } from './realtime/redis-io.adapter';
@@ -12,8 +13,15 @@ import { RedisIoAdapter } from './realtime/redis-io.adapter';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
+    // Replace the default body parser so the JSON limit can be raised: rich doc
+    // pages (BlockNote block JSON) easily exceed the 100 kB default and would
+    // otherwise fail with 413 "request entity too large". Multipart uploads
+    // (images/attachments) go through multer and are unaffected.
+    bodyParser: false,
   });
   app.useLogger(app.get(PinoLogger));
+  app.use(json({ limit: '16mb' }));
+  app.use(urlencoded({ extended: true, limit: '16mb' }));
 
   // Trust the edge nginx hop so Express (and therefore @nestjs/throttler) reads
   // the original client IP from X-Forwarded-For. Without this every request

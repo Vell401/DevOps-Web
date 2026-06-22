@@ -85,7 +85,7 @@ export function DocEditor({ page, canWrite, onTitleSaved }: Props) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        <div className="mx-auto w-full max-w-[860px] px-6 pb-20 pt-8">
+        <div className="mx-auto w-full max-w-[920px] px-6 pb-20 pt-8">
           <div className="mb-3 flex h-4 items-center justify-end text-[11px] font-medium text-[#7c828b]">
             {saving ? 'Saving…' : canWrite ? '' : 'Read-only'}
           </div>

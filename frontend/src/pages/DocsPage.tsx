@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { docsApi } from '../api/endpoints';
 import type {
   DocPage,
@@ -18,6 +24,8 @@ import { DocTree, type DropZone } from '../components/docs/DocTree';
 import { DocEditor } from '../components/docs/DocEditor';
 import { DocSpaceSettingsDialog } from '../components/docs/DocSpaceSettingsDialog';
 
+const TREE_W_KEY = 'tracker.docs.treeWidth';
+
 export function DocsPage() {
   const toast = useToast();
   const [spaces, setSpaces] = useState<DocSpaceLite[]>([]);
@@ -30,6 +38,36 @@ export function DocsPage() {
   const [newSpaceOpen, setNewSpaceOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<DocSearchHit[] | null>(null);
+
+  // Resizable tree panel — width persists across reloads, clamped to a sane range.
+  const asideRef = useRef<HTMLElement | null>(null);
+  const [treeWidth, setTreeWidth] = useState<number>(() => {
+    const v = Number(localStorage.getItem(TREE_W_KEY));
+    return Number.isFinite(v) && v >= 220 && v <= 520 ? v : 288;
+  });
+  const treeWidthRef = useRef(treeWidth);
+  treeWidthRef.current = treeWidth;
+  const startResize = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    const left = asideRef.current?.getBoundingClientRect().left ?? 0;
+    const onMove = (ev: MouseEvent) =>
+      setTreeWidth(Math.min(520, Math.max(220, ev.clientX - left)));
+    const onUp = () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      try {
+        localStorage.setItem(TREE_W_KEY, String(Math.round(treeWidthRef.current)));
+      } catch {
+        // ignore (private mode / quota)
+      }
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
 
   const canWrite = detail ? detail.myRole !== 'READER' : false;
 
@@ -195,7 +233,11 @@ export function DocsPage() {
     <>
       <Topbar crumbs={[{ label: 'Docs' }]} />
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-72 shrink-0 flex-col bg-paper">
+        <aside
+          ref={asideRef}
+          style={{ width: treeWidth }}
+          className="relative flex shrink-0 flex-col bg-paper"
+        >
           <div className="flex items-center gap-1 px-3 pb-2 pt-3">
             <Popover
               className="min-w-[244px]"
@@ -332,9 +374,18 @@ export function DocsPage() {
               </div>
             </>
           )}
+          {/* Drag handle: resize the tree panel; the thin line doubles as the divider. */}
+          <div
+            onMouseDown={startResize}
+            onDoubleClick={() => setTreeWidth(288)}
+            title="Drag to resize · double-click to reset"
+            className="group absolute -right-px top-0 z-20 h-full w-1.5 cursor-col-resize"
+          >
+            <div className="ml-auto h-full w-px bg-line/60 transition-colors group-hover:bg-blurple" />
+          </div>
         </aside>
 
-        <main className="min-w-0 flex-1 bg-[#e7e8ec]">
+        <main className="min-w-0 flex-1 bg-[#d9dbe0]">
           {loading ? (
             <div className="flex h-full items-center justify-center gap-2 text-sm text-[#6f747d]">
               <Spinner /> Loading…
