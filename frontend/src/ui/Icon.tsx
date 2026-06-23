@@ -164,6 +164,13 @@ export const Icon = {
       <path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-2.9-2.9l8.1-8.1" />
     </Base>
   ),
+  Upload: (p: IconProps) => (
+    <Base {...p}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="M17 8l-5-5-5 5" />
+      <path d="M12 3v12" />
+    </Base>
+  ),
   Download: (p: IconProps) => (
     <Base {...p}>
       <path d="M12 4v11M7 11l5 5 5-5M5 20h14" />

@@ -25,6 +25,13 @@ import { DocEditor } from '../components/docs/DocEditor';
 import { DocSpaceSettingsDialog } from '../components/docs/DocSpaceSettingsDialog';
 import { DocHistoryDialog } from '../components/docs/DocHistoryDialog';
 import { ContextMenu, ContextMenuItem } from '../ui/ContextMenu';
+import {
+  blocksToMarkdown,
+  downloadMarkdown,
+  markdownToBlocks,
+  titleFromMarkdown,
+  toFileStem,
+} from '../lib/docMarkdown';
 
 const TREE_W_KEY = 'tracker.docs.treeWidth';
 
@@ -200,6 +207,50 @@ export function DocsPage() {
     }
   };
 
+  // ---- Markdown import / export ----
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const importParentRef = useRef<string | null>(null);
+
+  // Open the OS file picker; the chosen file is imported under `parentId`.
+  const openImport = (parentId: string | null) => {
+    importParentRef.current = parentId;
+    fileInputRef.current?.click();
+  };
+
+  const onImportFile = async (file: File | null) => {
+    if (!file || !spaceId) return;
+    const parentId = importParentRef.current;
+    try {
+      const text = await file.text();
+      const blocks = await markdownToBlocks(text);
+      const { data } = await docsApi.createPage(spaceId, parentId ? { parentId } : {});
+      await docsApi.updatePage(data.id, {
+        title: titleFromMarkdown(text, file.name),
+        content: blocks,
+        contentText: text,
+      });
+      await loadSpace(spaceId);
+      selectPage(data.id);
+      toast.push('Page imported', 'success');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not import file'), 'error');
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      importParentRef.current = null;
+    }
+  };
+
+  // Export any page (open or not) as Markdown.
+  const exportPage = async (id: string) => {
+    try {
+      const { data } = await docsApi.getPage(id);
+      const md = await blocksToMarkdown(Array.isArray(data.content) ? data.content : []);
+      downloadMarkdown(toFileStem(data.title), md);
+    } catch (err) {
+      toast.push(apiError(err, 'Could not export page'), 'error');
+    }
+  };
+
   // Drag-and-drop reorder / reparent in the tree.
   const movePage = async (dragId: string, targetId: string, zone: DropZone) => {
     if (!detail || !spaceId || dragId === targetId) return;
@@ -348,13 +399,22 @@ export function DocsPage() {
                   Pages
                 </span>
                 {canWrite && (
-                  <button
-                    onClick={() => void createPage(null)}
-                    className="rounded-sm p-0.5 text-ink-muted transition hover:bg-surface-hover hover:text-ink"
-                    title="New page"
-                  >
-                    <Icon.Plus size={14} />
-                  </button>
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      onClick={() => openImport(null)}
+                      className="rounded-sm p-0.5 text-ink-muted transition hover:bg-surface-hover hover:text-ink"
+                      title="Import a Markdown file as a new page"
+                    >
+                      <Icon.Upload size={13} />
+                    </button>
+                    <button
+                      onClick={() => void createPage(null)}
+                      className="rounded-sm p-0.5 text-ink-muted transition hover:bg-surface-hover hover:text-ink"
+                      title="New page"
+                    >
+                      <Icon.Plus size={14} />
+                    </button>
+                  </div>
                 )}
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 scrollbar-thin">
@@ -503,6 +563,26 @@ export function DocsPage() {
               New sub-page
             </ContextMenuItem>
           )}
+          {canWrite && (
+            <ContextMenuItem
+              icon={<Icon.Upload size={14} />}
+              onClick={() => {
+                openImport(menu.id);
+                setMenu(null);
+              }}
+            >
+              Import sub-page
+            </ContextMenuItem>
+          )}
+          <ContextMenuItem
+            icon={<Icon.Download size={14} />}
+            onClick={() => {
+              void exportPage(menu.id);
+              setMenu(null);
+            }}
+          >
+            Export Markdown
+          </ContextMenuItem>
           <ContextMenuItem
             icon={<Icon.History size={14} />}
             onClick={() => {
@@ -542,6 +622,14 @@ export function DocsPage() {
             setPageReloadKey((k) => k + 1);
           }
         }}
+      />
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".md,.markdown,text/markdown,text/plain"
+        className="hidden"
+        onChange={(e) => void onImportFile(e.target.files?.[0] ?? null)}
       />
     </>
   );

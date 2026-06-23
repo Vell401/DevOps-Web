@@ -12,6 +12,7 @@ import { useToast } from '../../ui/Toast';
 import { Icon } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
 import { apiError } from '../../lib/apiError';
+import { downloadMarkdown, toFileStem } from '../../lib/docMarkdown';
 
 const ZOOM_KEY = 'tracker.docs.zoom';
 const clampZoom = (z: number) => Math.min(2, Math.max(0.5, Math.round(z * 10) / 10));
@@ -99,6 +100,15 @@ export function DocEditor({ page, canWrite, defaultEditing, onSaved }: Props) {
     };
   }, [persist]);
 
+  const exportMarkdown = async () => {
+    try {
+      const md = await editor.blocksToMarkdownLossy(editor.document as unknown as PartialBlock[]);
+      downloadMarkdown(toFileStem(title), md);
+    } catch (err) {
+      toast.push(apiError(err, 'Could not export'), 'error');
+    }
+  };
+
   return (
     <div className="relative flex h-full flex-col">
       <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable] scrollbar-thin">
@@ -133,8 +143,15 @@ export function DocEditor({ page, canWrite, defaultEditing, onSaved }: Props) {
         </div>
       </div>
 
-      {/* Edit / Save — top-right, fixed while the page scrolls. */}
+      {/* Export / Edit / Save — top-right, fixed while the page scrolls. */}
       <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
+        <button
+          onClick={() => void exportMarkdown()}
+          className="btn-secondary h-8 px-3 text-xs shadow-card"
+          title="Download as Markdown (.md)"
+        >
+          <Icon.Download size={13} /> Export
+        </button>
         {!canWrite ? (
           <span className="rounded-lg bg-surface/95 px-3 py-1.5 text-[11px] font-medium text-ink-subtle shadow-card ring-1 ring-black/10 backdrop-blur">
             Read-only

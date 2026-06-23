@@ -206,7 +206,13 @@ export function NewTaskDialog({
                         }
                       >
                         <span className="flex items-center gap-2">
-                          <Avatar name={u.name} color={u.avatarColor} size="xs" />
+                          <Avatar
+                            name={u.name}
+                            color={u.avatarColor}
+                            size="xs"
+                            userId={u.id}
+                            avatarKey={u.avatarKey}
+                          />
                           {u.name}
                         </span>
                       </PopoverItem>
