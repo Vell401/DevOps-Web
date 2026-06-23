@@ -11,6 +11,14 @@ import type {
   Attachment,
   LoginEvent,
   Comment,
+  DocMemberInfo,
+  DocPage,
+  DocRevision,
+  DocRevisionMeta,
+  DocRole,
+  DocSearchHit,
+  DocSpaceDetail,
+  DocSpaceLite,
   Label,
   LabelColor,
   Paginated,
@@ -274,4 +282,58 @@ export const adminApi = {
   updateUser: (id: string, body: AdminUpdateUserBody) =>
     api.patch<AdminUser>(`/admin/users/${id}`, body),
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
+};
+
+export const docsApi = {
+  listSpaces: () => api.get<DocSpaceLite[]>('/docs/spaces'),
+  createSpace: (name: string, icon?: string) =>
+    api.post<DocSpaceLite>('/docs/spaces', { name, ...(icon ? { icon } : {}) }),
+  getSpace: (id: string) => api.get<DocSpaceDetail>(`/docs/spaces/${id}`),
+  updateSpace: (id: string, body: { name?: string; icon?: string }) =>
+    api.patch<DocSpaceLite>(`/docs/spaces/${id}`, body),
+  deleteSpace: (id: string) => api.delete(`/docs/spaces/${id}`),
+  search: (spaceId: string, q: string) =>
+    api.get<DocSearchHit[]>(`/docs/spaces/${spaceId}/search`, { params: { q } }),
+
+  listMembers: (spaceId: string) =>
+    api.get<DocMemberInfo[]>(`/docs/spaces/${spaceId}/members`),
+  addMember: (spaceId: string, userId: string, role?: DocRole) =>
+    api.post<DocMemberInfo[]>(`/docs/spaces/${spaceId}/members`, {
+      userId,
+      ...(role ? { role } : {}),
+    }),
+  updateMember: (spaceId: string, memberId: string, role: DocRole) =>
+    api.patch<DocMemberInfo[]>(`/docs/spaces/${spaceId}/members/${memberId}`, { role }),
+  removeMember: (spaceId: string, memberId: string) =>
+    api.delete<DocMemberInfo[]>(`/docs/spaces/${spaceId}/members/${memberId}`),
+
+  createPage: (
+    spaceId: string,
+    body: { title?: string; parentId?: string; icon?: string },
+  ) => api.post<DocPage>(`/docs/spaces/${spaceId}/pages`, body),
+  getPage: (pageId: string) => api.get<DocPage>(`/docs/pages/${pageId}`),
+  updatePage: (
+    pageId: string,
+    body: {
+      title?: string;
+      icon?: string;
+      content?: unknown[];
+      contentText?: string;
+      parentId?: string | null;
+      position?: number;
+    },
+  ) => api.patch<DocPage>(`/docs/pages/${pageId}`, body),
+  deletePage: (pageId: string) => api.delete(`/docs/pages/${pageId}`),
+
+  uploadImage: (pageId: string, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post<{ id: string; url: string }>(`/docs/pages/${pageId}/images`, fd);
+  },
+
+  listRevisions: (pageId: string) =>
+    api.get<DocRevisionMeta[]>(`/docs/pages/${pageId}/revisions`),
+  getRevision: (revId: string) => api.get<DocRevision>(`/docs/revisions/${revId}`),
+  restoreRevision: (pageId: string, revId: string) =>
+    api.post<DocPage>(`/docs/pages/${pageId}/revisions/${revId}/restore`),
 };

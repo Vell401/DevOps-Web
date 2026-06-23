@@ -70,6 +70,13 @@ enum ProjectRole {
   ADMIN
 }
 
+// Per-doc-space roles. The space owner (DocSpace.ownerId) outranks both and is
+// not a member row. READER = view; WRITER = view + edit pages / upload images.
+enum DocRole {
+  READER
+  WRITER
+}
+
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -93,6 +100,10 @@ model User {
   loginEvents       LoginEvent[]
   notifications     Notification[]  @relation("NotificationRecipient")
   sentNotifications Notification[]  @relation("NotificationActor")
+  docSpaces         DocSpace[]       @relation("DocSpaceOwner")
+  docMemberships    DocSpaceMember[]
+  docImages         DocImage[]
+  docRevisions      DocPageRevision[] @relation("DocRevisionEditor")
 }
 
 model Project {
@@ -273,4 +284,89 @@ model LoginEvent {
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+// ---- Documentation (wiki) ----
+// A DocSpace is a wiki owned by its creator, shared with members (READER/WRITER).
+// It holds a tree of DocPages (Notion-style: any page may have children). Page
+// content is the editor's block JSON; contentText is a flattened copy for search.
+
+model DocSpace {
+  id        String           @id @default(uuid())
+  name      String
+  icon      String?
+  ownerId   String
+  owner     User             @relation("DocSpaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members   DocSpaceMember[]
+  pages     DocPage[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([ownerId])
+}
+
+model DocSpaceMember {
+  spaceId   String
+  space     DocSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      DocRole  @default(WRITER)
+  createdAt DateTime @default(now())
+
+  @@id([spaceId, userId])
+  @@index([userId])
+}
+
+model DocPage {
+  id          String     @id @default(uuid())
+  spaceId     String
+  space       DocSpace   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  parentId    String?
+  parent      DocPage?   @relation("DocTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    DocPage[]  @relation("DocTree")
+  title       String     @default("Untitled")
+  icon        String?
+  // Editor block document (BlockNote JSON). Null = empty page.
+  content     Json?
+  // Flattened plain text of `content`, kept in sync on save, for search.
+  contentText String     @default("")
+  position    Float      @default(0)
+  images      DocImage[]
+  revisions   DocPageRevision[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([spaceId, parentId])
+}
+
+model DocImage {
+  id         String   @id @default(uuid())
+  pageId     String
+  page       DocPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  uploaderId String
+  uploader   User     @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  key        String   @unique // object key in the S3/MinIO bucket
+  filename   String
+  mimeType   String
+  size       Int
+  createdAt  DateTime @default(now())
+
+  @@index([pageId])
+}
+
+// Point-in-time snapshot of a DocPage, written on each (manual) save. Powers the
+// version history: who saved what and when, plus restore. `editor` is nullable
+// so deleting a user keeps the history; capped per page in the service.
+model DocPageRevision {
+  id          String   @id @default(uuid())
+  pageId      String
+  page        DocPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  editorId    String?
+  editor      User?    @relation("DocRevisionEditor", fields: [editorId], references: [id], onDelete: SetNull)
+  title       String
+  content     Json?
+  contentText String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@index([pageId, createdAt])
 }

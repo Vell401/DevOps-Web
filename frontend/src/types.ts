@@ -277,6 +277,86 @@ export interface Paginated<T> {
   nextCursor: string | null;
 }
 
+// ---- Documentation (wiki) ----
+export type DocRole = 'READER' | 'WRITER';
+export type EffectiveDocRole = DocRole | 'OWNER';
+
+/** A doc space as it appears in the spaces list. */
+export interface DocSpaceLite {
+  id: string;
+  name: string;
+  icon: string | null;
+  ownerId: string;
+  owner: UserLite;
+  pageCount: number;
+  createdAt: string;
+  myRole: EffectiveDocRole;
+}
+
+/** Tree node (title/icon/parent only — page content is fetched separately). */
+export interface DocPageNode {
+  id: string;
+  title: string;
+  icon: string | null;
+  parentId: string | null;
+  position: number;
+  updatedAt: string;
+}
+
+export interface DocSpaceDetail {
+  id: string;
+  name: string;
+  icon: string | null;
+  ownerId: string;
+  owner: UserLite;
+  createdAt: string;
+  myRole: EffectiveDocRole;
+  pages: DocPageNode[];
+}
+
+export interface DocPage {
+  id: string;
+  spaceId: string;
+  parentId: string | null;
+  title: string;
+  icon: string | null;
+  /** BlockNote block document. Null on a brand-new page. */
+  content: unknown[] | null;
+  contentText: string;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocMemberInfo extends UserLite {
+  role: DocRole;
+}
+
+export interface DocSearchHit {
+  id: string;
+  title: string;
+  icon: string | null;
+  parentId: string | null;
+  snippet: string;
+}
+
+/** One entry in a page's version history (no content — fetched on demand). */
+export interface DocRevisionMeta {
+  id: string;
+  title: string;
+  createdAt: string;
+  editor: UserLite | null;
+}
+
+export interface DocRevision {
+  id: string;
+  pageId: string;
+  title: string;
+  content: unknown[] | null;
+  contentText: string;
+  createdAt: string;
+}
+
 export type AppNotificationType =
   | 'MENTIONED'
   | 'ASSIGNED'

@@ -65,6 +65,13 @@ export const Icon = {
       <path d="M3 12h4l3-9 4 18 3-9h4" />
     </Base>
   ),
+  History: (p: IconProps) => (
+    <Base {...p}>
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l4 2" />
+    </Base>
+  ),
   Layers: (p: IconProps) => (
     <Base {...p}>
       <path d="M12 3l9 5-9 5-9-5 9-5z" />
