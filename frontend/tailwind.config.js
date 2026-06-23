@@ -19,7 +19,7 @@ export default {
         paper: '#313338',
         ink: {
           DEFAULT: '#F2F3F5',
-          muted: '#B5BAC1',
+          muted: '#d1d1d1',
           subtle: '#a8acb3',
         },
         line: {
