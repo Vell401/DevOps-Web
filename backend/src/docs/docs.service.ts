@@ -465,8 +465,9 @@ export class DocsService {
 
   // ----------------- Revisions (version history) -----------------
 
-  /** Snapshot the page's current state. Coalesces rapid saves by the same editor
-   *  (within 60s) into the latest revision; caps history per page. */
+  /** Snapshot the page's state after a content save. Saves are deliberate now
+   *  (manual Edit/Save, gated behind real changes on the client), so each one is
+   *  its own version; history is capped per page. */
   private async snapshotRevision(
     pageId: string,
     userId: string,
@@ -475,22 +476,6 @@ export class DocsService {
     const contentValue =
       page.content === null ? Prisma.JsonNull : (page.content as Prisma.InputJsonValue);
 
-    const last = await this.prisma.docPageRevision.findFirst({
-      where: { pageId },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (last && last.editorId === userId && Date.now() - last.createdAt.getTime() < 60_000) {
-      await this.prisma.docPageRevision.update({
-        where: { id: last.id },
-        data: {
-          title: page.title,
-          content: contentValue,
-          contentText: page.contentText,
-          createdAt: new Date(),
-        },
-      });
-      return;
-    }
     await this.prisma.docPageRevision.create({
       data: {
         pageId,
