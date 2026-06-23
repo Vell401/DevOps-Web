@@ -20,7 +20,7 @@ export default {
         ink: {
           DEFAULT: '#F2F3F5',
           muted: '#B5BAC1',
-          subtle: '#80848E',
+          subtle: '#949BA4',
         },
         line: {
           DEFAULT: '#3F4147',
