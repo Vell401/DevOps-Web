@@ -103,6 +103,7 @@ model User {
   docSpaces         DocSpace[]       @relation("DocSpaceOwner")
   docMemberships    DocSpaceMember[]
   docImages         DocImage[]
+  docRevisions      DocPageRevision[] @relation("DocRevisionEditor")
 }
 
 model Project {
@@ -331,6 +332,7 @@ model DocPage {
   contentText String     @default("")
   position    Float      @default(0)
   images      DocImage[]
+  revisions   DocPageRevision[]
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
@@ -350,4 +352,21 @@ model DocImage {
   createdAt  DateTime @default(now())
 
   @@index([pageId])
+}
+
+// Point-in-time snapshot of a DocPage, written on each (manual) save. Powers the
+// version history: who saved what and when, plus restore. `editor` is nullable
+// so deleting a user keeps the history; capped per page in the service.
+model DocPageRevision {
+  id          String   @id @default(uuid())
+  pageId      String
+  page        DocPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  editorId    String?
+  editor      User?    @relation("DocRevisionEditor", fields: [editorId], references: [id], onDelete: SetNull)
+  title       String
+  content     Json?
+  contentText String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@index([pageId, createdAt])
 }

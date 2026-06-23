@@ -23,6 +23,8 @@ import { useDocSpaceRealtime, useUserRealtime } from '../lib/realtime';
 import { DocTree, type DropZone } from '../components/docs/DocTree';
 import { DocEditor } from '../components/docs/DocEditor';
 import { DocSpaceSettingsDialog } from '../components/docs/DocSpaceSettingsDialog';
+import { DocHistoryDialog } from '../components/docs/DocHistoryDialog';
+import { ContextMenu, ContextMenuItem } from '../ui/ContextMenu';
 
 const TREE_W_KEY = 'tracker.docs.treeWidth';
 
@@ -38,6 +40,16 @@ export function DocsPage() {
   const [newSpaceOpen, setNewSpaceOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<DocSearchHit[] | null>(null);
+  // Manual Edit/Save: opening a page from the tree's "Edit" action (button or
+  // right-click menu) sets editIntent so the editor mounts already in edit mode.
+  const [editIntent, setEditIntent] = useState<string | null>(null);
+  // Bumped to force-remount the editor with fresh content after a restore.
+  const [pageReloadKey, setPageReloadKey] = useState(0);
+  // Right-click context menu over a tree row.
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  // Version-history dialog.
+  const [historyPageId, setHistoryPageId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // Resizable tree panel — width persists across reloads, clamped to a sane range.
   const asideRef = useRef<HTMLElement | null>(null);
@@ -70,6 +82,21 @@ export function DocsPage() {
   };
 
   const canWrite = detail ? detail.myRole !== 'READER' : false;
+
+  // Open a page in read mode (normal click / search result).
+  const selectPage = (id: string | null) => {
+    setEditIntent(null);
+    setPageId(id);
+  };
+  // Open a page straight into edit mode (tree "Edit" action / context menu).
+  const startEdit = (id: string) => {
+    setEditIntent(id);
+    setPageId(id);
+  };
+  const openHistory = (id: string) => {
+    setHistoryPageId(id);
+    setHistoryOpen(true);
+  };
 
   const loadSpaces = useCallback(
     async (selectId?: string) => {
@@ -340,7 +367,7 @@ export function DocsPage() {
                       <li key={r.id}>
                         <button
                           onClick={() => {
-                            setPageId(r.id);
+                            selectPage(r.id);
                             setQuery('');
                           }}
                           className="w-full rounded-md px-2.5 py-1.5 text-left transition hover:bg-surface-hover/50"
@@ -365,10 +392,12 @@ export function DocsPage() {
                     pages={detail.pages}
                     selectedId={pageId}
                     canWrite={canWrite}
-                    onSelect={setPageId}
+                    onSelect={selectPage}
                     onCreateChild={(pid) => void createPage(pid)}
                     onDelete={(id) => void deletePage(id)}
                     onMove={(d, t, z) => void movePage(d, t, z)}
+                    onHistory={openHistory}
+                    onContextMenu={(id, e) => setMenu({ id, x: e.clientX, y: e.clientY })}
                   />
                 )}
               </div>
@@ -403,10 +432,11 @@ export function DocsPage() {
             </div>
           ) : (
             <DocEditor
-              key={page.id}
+              key={`${editIntent === page.id ? `${page.id}-edit` : page.id}:${pageReloadKey}`}
               page={page}
               canWrite={canWrite}
-              onTitleSaved={() => {
+              defaultEditing={editIntent === page.id && canWrite}
+              onSaved={() => {
                 if (spaceId) void loadSpace(spaceId);
               }}
             />
@@ -445,6 +475,71 @@ export function DocsPage() {
             await loadSpaces(data.id);
           } catch (err) {
             toast.push(apiError(err, 'Could not create space'), 'error');
+          }
+        }}
+      />
+
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+          {canWrite && (
+            <ContextMenuItem
+              icon={<Icon.Edit size={14} />}
+              onClick={() => {
+                startEdit(menu.id);
+                setMenu(null);
+              }}
+            >
+              Edit
+            </ContextMenuItem>
+          )}
+          {canWrite && (
+            <ContextMenuItem
+              icon={<Icon.Plus size={14} />}
+              onClick={() => {
+                void createPage(menu.id);
+                setMenu(null);
+              }}
+            >
+              New sub-page
+            </ContextMenuItem>
+          )}
+          <ContextMenuItem
+            icon={<Icon.History size={14} />}
+            onClick={() => {
+              openHistory(menu.id);
+              setMenu(null);
+            }}
+          >
+            Version history
+          </ContextMenuItem>
+          {canWrite && (
+            <ContextMenuItem
+              danger
+              icon={<Icon.Trash size={14} />}
+              onClick={() => {
+                void deletePage(menu.id);
+                setMenu(null);
+              }}
+            >
+              Delete
+            </ContextMenuItem>
+          )}
+        </ContextMenu>
+      )}
+
+      <DocHistoryDialog
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        pageId={historyPageId}
+        canWrite={canWrite}
+        onRestored={() => {
+          if (spaceId) void loadSpace(spaceId);
+          if (historyPageId && historyPageId === pageId) {
+            docsApi
+              .getPage(pageId)
+              .then((r) => setPage(r.data))
+              .catch(() => undefined);
+            setPageReloadKey((k) => k + 1);
           }
         }}
       />

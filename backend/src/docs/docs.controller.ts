@@ -162,6 +162,33 @@ export class DocsController {
     await this.docs.deletePage(id, u.userId);
   }
 
+  // ---- revisions (version history) ----
+
+  @Get('pages/:id/revisions')
+  listRevisions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() u: AuthenticatedUser,
+  ) {
+    return this.docs.listRevisions(id, u.userId);
+  }
+
+  @Get('revisions/:id')
+  getRevision(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() u: AuthenticatedUser,
+  ) {
+    return this.docs.getRevision(id, u.userId);
+  }
+
+  @Post('pages/:id/revisions/:revId/restore')
+  restoreRevision(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('revId', ParseUUIDPipe) revId: string,
+    @CurrentUser() u: AuthenticatedUser,
+  ) {
+    return this.docs.restoreRevision(id, revId, u.userId);
+  }
+
   // ---- images ----
 
   @Post('pages/:id/images')

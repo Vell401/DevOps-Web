@@ -340,6 +340,23 @@ export interface DocSearchHit {
   snippet: string;
 }
 
+/** One entry in a page's version history (no content — fetched on demand). */
+export interface DocRevisionMeta {
+  id: string;
+  title: string;
+  createdAt: string;
+  editor: UserLite | null;
+}
+
+export interface DocRevision {
+  id: string;
+  pageId: string;
+  title: string;
+  content: unknown[] | null;
+  contentText: string;
+  createdAt: string;
+}
+
 export type AppNotificationType =
   | 'MENTIONED'
   | 'ASSIGNED'

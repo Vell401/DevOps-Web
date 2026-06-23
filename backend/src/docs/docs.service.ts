@@ -324,6 +324,11 @@ export class DocsService {
 
     const updated = await this.prisma.docPage.update({ where: { id: pageId }, data });
 
+    // Snapshot a version whenever the body content is saved.
+    if (Array.isArray(dto.content)) {
+      await this.snapshotRevision(pageId, userId, updated);
+    }
+
     const structural =
       dto.title !== undefined ||
       dto.icon !== undefined ||
@@ -456,6 +461,125 @@ export class DocsService {
       ...p,
       snippet: snippetAround(contentText, term),
     }));
+  }
+
+  // ----------------- Revisions (version history) -----------------
+
+  /** Snapshot the page's current state. Coalesces rapid saves by the same editor
+   *  (within 60s) into the latest revision; caps history per page. */
+  private async snapshotRevision(
+    pageId: string,
+    userId: string,
+    page: { title: string; content: Prisma.JsonValue | null; contentText: string },
+  ): Promise<void> {
+    const contentValue =
+      page.content === null ? Prisma.JsonNull : (page.content as Prisma.InputJsonValue);
+
+    const last = await this.prisma.docPageRevision.findFirst({
+      where: { pageId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (last && last.editorId === userId && Date.now() - last.createdAt.getTime() < 60_000) {
+      await this.prisma.docPageRevision.update({
+        where: { id: last.id },
+        data: {
+          title: page.title,
+          content: contentValue,
+          contentText: page.contentText,
+          createdAt: new Date(),
+        },
+      });
+      return;
+    }
+    await this.prisma.docPageRevision.create({
+      data: {
+        pageId,
+        editorId: userId,
+        title: page.title,
+        content: contentValue,
+        contentText: page.contentText,
+      },
+    });
+    await this.pruneRevisions(pageId);
+  }
+
+  /** Keep only the most recent 50 revisions per page. */
+  private async pruneRevisions(pageId: string): Promise<void> {
+    const stale = await this.prisma.docPageRevision.findMany({
+      where: { pageId },
+      orderBy: { createdAt: 'desc' },
+      skip: 50,
+      select: { id: true },
+    });
+    if (stale.length) {
+      await this.prisma.docPageRevision.deleteMany({
+        where: { id: { in: stale.map((r) => r.id) } },
+      });
+    }
+  }
+
+  async listRevisions(pageId: string, userId: string) {
+    const page = await this.prisma.docPage.findUnique({
+      where: { id: pageId },
+      select: { spaceId: true },
+    });
+    if (!page) throw new NotFoundException('Page not found');
+    await this.assertSpaceRole(page.spaceId, userId, 'READER');
+    return this.prisma.docPageRevision.findMany({
+      where: { pageId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { id: true, title: true, createdAt: true, editor: USER_LITE },
+    });
+  }
+
+  async getRevision(revId: string, userId: string) {
+    const rev = await this.prisma.docPageRevision.findUnique({
+      where: { id: revId },
+      include: { page: { select: { spaceId: true } } },
+    });
+    if (!rev) throw new NotFoundException('Revision not found');
+    await this.assertSpaceRole(rev.page.spaceId, userId, 'READER');
+    return {
+      id: rev.id,
+      pageId: rev.pageId,
+      title: rev.title,
+      content: rev.content,
+      contentText: rev.contentText,
+      createdAt: rev.createdAt,
+    };
+  }
+
+  async restoreRevision(pageId: string, revId: string, userId: string) {
+    const page = await this.prisma.docPage.findUnique({
+      where: { id: pageId },
+      select: { spaceId: true },
+    });
+    if (!page) throw new NotFoundException('Page not found');
+    await this.assertSpaceRole(page.spaceId, userId, DocRole.WRITER);
+    const rev = await this.prisma.docPageRevision.findUnique({ where: { id: revId } });
+    if (!rev || rev.pageId !== pageId) throw new NotFoundException('Revision not found');
+
+    const contentValue =
+      rev.content === null ? Prisma.JsonNull : (rev.content as Prisma.InputJsonValue);
+    const updated = await this.prisma.docPage.update({
+      where: { id: pageId },
+      data: { title: rev.title, content: contentValue, contentText: rev.contentText },
+    });
+    // Record the restore as a fresh revision so it shows in the history.
+    await this.prisma.docPageRevision.create({
+      data: {
+        pageId,
+        editorId: userId,
+        title: updated.title,
+        content: contentValue,
+        contentText: updated.contentText,
+      },
+    });
+    await this.pruneRevisions(pageId);
+    this.realtime.emitDocTreeChanged(page.spaceId);
+    this.realtime.emitDocPageUpdated(page.spaceId, pageId);
+    return updated;
   }
 }
 

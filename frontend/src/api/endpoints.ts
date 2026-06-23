@@ -13,6 +13,8 @@ import type {
   Comment,
   DocMemberInfo,
   DocPage,
+  DocRevision,
+  DocRevisionMeta,
   DocRole,
   DocSearchHit,
   DocSpaceDetail,
@@ -328,4 +330,10 @@ export const docsApi = {
     fd.append('file', file);
     return api.post<{ id: string; url: string }>(`/docs/pages/${pageId}/images`, fd);
   },
+
+  listRevisions: (pageId: string) =>
+    api.get<DocRevisionMeta[]>(`/docs/pages/${pageId}/revisions`),
+  getRevision: (revId: string) => api.get<DocRevision>(`/docs/revisions/${revId}`),
+  restoreRevision: (pageId: string, revId: string) =>
+    api.post<DocPage>(`/docs/pages/${pageId}/revisions/${revId}/restore`),
 };

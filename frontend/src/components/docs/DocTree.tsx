@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from 'react';
+import { useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import type { DocPageNode } from '../../types';
 import { Icon } from '../../ui/Icon';
 import { cn } from '../../lib/cn';
@@ -13,6 +13,8 @@ interface Props {
   onCreateChild: (parentId: string | null) => void;
   onDelete: (id: string) => void;
   onMove: (dragId: string, targetId: string, zone: DropZone) => void;
+  onHistory: (id: string) => void;
+  onContextMenu: (id: string, e: ReactMouseEvent) => void;
 }
 
 interface TreeNode extends DocPageNode {
@@ -49,10 +51,21 @@ export function DocTree({
   onSelect,
   onCreateChild,
   onDelete,
+  onHistory,
+  onContextMenu,
 }: Props) {
   const tree = buildTree(pages);
   const [drag, setDrag] = useState<DragState>({ dragId: null, drop: null });
-  const rowProps = { selectedId, canWrite, onSelect, onCreateChild, onDelete, onMove };
+  const rowProps = {
+    selectedId,
+    canWrite,
+    onSelect,
+    onCreateChild,
+    onDelete,
+    onMove,
+    onHistory,
+    onContextMenu,
+  };
 
   return (
     <ul className="space-y-px" onDragEnd={() => setDrag({ dragId: null, drop: null })}>
@@ -75,6 +88,8 @@ function TreeRow({
   onCreateChild,
   onDelete,
   onMove,
+  onHistory,
+  onContextMenu,
   drag,
   setDrag,
 }: {
@@ -129,6 +144,10 @@ function TreeRow({
           onDragLeave={() => {
             if (drag.drop?.id === node.id) setDrag({ dragId: drag.dragId, drop: null });
           }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            onContextMenu(node.id, e);
+          }}
           className={cn(
             'group flex items-center gap-1 rounded-md pr-1 text-sm transition-colors',
             canWrite && 'cursor-grab active:cursor-grabbing',
@@ -163,24 +182,33 @@ function TreeRow({
             </span>
             <span className="truncate">{node.title || 'Untitled'}</span>
           </button>
-          {canWrite && (
-            <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-              <button
-                onClick={() => onCreateChild(node.id)}
-                className="rounded-sm p-0.5 text-ink-subtle hover:text-ink"
-                title="Add sub-page"
-              >
-                <Icon.Plus size={12} />
-              </button>
-              <button
-                onClick={() => onDelete(node.id)}
-                className="rounded-sm p-0.5 text-ink-subtle hover:text-status-dnd"
-                title="Delete page"
-              >
-                <Icon.Trash size={12} />
-              </button>
-            </div>
-          )}
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              onClick={() => onHistory(node.id)}
+              className="rounded-sm p-0.5 text-ink-subtle hover:text-ink"
+              title="Version history"
+            >
+              <Icon.History size={13} />
+            </button>
+            {canWrite && (
+              <>
+                <button
+                  onClick={() => onCreateChild(node.id)}
+                  className="rounded-sm p-0.5 text-ink-subtle hover:text-ink"
+                  title="Add sub-page"
+                >
+                  <Icon.Plus size={12} />
+                </button>
+                <button
+                  onClick={() => onDelete(node.id)}
+                  className="rounded-sm p-0.5 text-ink-subtle hover:text-status-dnd"
+                  title="Delete page"
+                >
+                  <Icon.Trash size={12} />
+                </button>
+              </>
+            )}
+          </div>
         </div>
         {zone === 'after' && (
           <div
@@ -202,6 +230,8 @@ function TreeRow({
               onCreateChild={onCreateChild}
               onDelete={onDelete}
               onMove={onMove}
+              onHistory={onHistory}
+              onContextMenu={onContextMenu}
               drag={drag}
               setDrag={setDrag}
             />
