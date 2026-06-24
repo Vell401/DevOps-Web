@@ -27,10 +27,13 @@ export function ContextMenu({
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
     window.addEventListener('resize', onClose);
+    // Capture phase so scrolling any ancestor container (not just window) closes it.
+    window.addEventListener('scroll', onClose, true);
     return () => {
       document.removeEventListener('mousedown', onDoc);
       document.removeEventListener('keydown', onKey);
       window.removeEventListener('resize', onClose);
+      window.removeEventListener('scroll', onClose, true);
     };
   }, [onClose]);
 

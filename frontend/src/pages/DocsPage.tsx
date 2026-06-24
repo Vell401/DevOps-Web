@@ -220,10 +220,13 @@ export function DocsPage() {
   const onImportFile = async (file: File | null) => {
     if (!file || !spaceId) return;
     const parentId = importParentRef.current;
+    // Parse before creating anything, so a bad file never leaves a stray page.
+    let createdId: string | null = null;
     try {
       const text = await file.text();
       const blocks = await markdownToBlocks(text);
       const { data } = await docsApi.createPage(spaceId, parentId ? { parentId } : {});
+      createdId = data.id;
       await docsApi.updatePage(data.id, {
         title: titleFromMarkdown(text, file.name),
         content: blocks,
@@ -233,6 +236,8 @@ export function DocsPage() {
       selectPage(data.id);
       toast.push('Page imported', 'success');
     } catch (err) {
+      // Roll back the empty page if it was created but never populated.
+      if (createdId) await docsApi.deletePage(createdId).catch(() => undefined);
       toast.push(apiError(err, 'Could not import file'), 'error');
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';

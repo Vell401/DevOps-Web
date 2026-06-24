@@ -322,12 +322,14 @@ export class DocsService {
         : { disconnect: true };
     }
 
-    const updated = await this.prisma.docPage.update({ where: { id: pageId }, data });
-
-    // Snapshot a version whenever the body content is saved.
-    if (Array.isArray(dto.content)) {
-      await this.snapshotRevision(pageId, userId, updated);
-    }
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const saved = await tx.docPage.update({ where: { id: pageId }, data });
+      // Snapshot a version (same transaction) whenever the body content is saved.
+      if (Array.isArray(dto.content)) {
+        await this.snapshotRevision(tx, pageId, userId, saved);
+      }
+      return saved;
+    });
 
     const structural =
       dto.title !== undefined ||
@@ -469,6 +471,7 @@ export class DocsService {
    *  (manual Edit/Save, gated behind real changes on the client), so each one is
    *  its own version; history is capped per page. */
   private async snapshotRevision(
+    tx: Prisma.TransactionClient,
     pageId: string,
     userId: string,
     page: { title: string; content: Prisma.JsonValue | null; contentText: string },
@@ -476,7 +479,7 @@ export class DocsService {
     const contentValue =
       page.content === null ? Prisma.JsonNull : (page.content as Prisma.InputJsonValue);
 
-    await this.prisma.docPageRevision.create({
+    await tx.docPageRevision.create({
       data: {
         pageId,
         editorId: userId,
@@ -485,19 +488,19 @@ export class DocsService {
         contentText: page.contentText,
       },
     });
-    await this.pruneRevisions(pageId);
+    await this.pruneRevisions(tx, pageId);
   }
 
   /** Keep only the most recent 50 revisions per page. */
-  private async pruneRevisions(pageId: string): Promise<void> {
-    const stale = await this.prisma.docPageRevision.findMany({
+  private async pruneRevisions(tx: Prisma.TransactionClient, pageId: string): Promise<void> {
+    const stale = await tx.docPageRevision.findMany({
       where: { pageId },
       orderBy: { createdAt: 'desc' },
       skip: 50,
       select: { id: true },
     });
     if (stale.length) {
-      await this.prisma.docPageRevision.deleteMany({
+      await tx.docPageRevision.deleteMany({
         where: { id: { in: stale.map((r) => r.id) } },
       });
     }
@@ -547,21 +550,24 @@ export class DocsService {
 
     const contentValue =
       rev.content === null ? Prisma.JsonNull : (rev.content as Prisma.InputJsonValue);
-    const updated = await this.prisma.docPage.update({
-      where: { id: pageId },
-      data: { title: rev.title, content: contentValue, contentText: rev.contentText },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const saved = await tx.docPage.update({
+        where: { id: pageId },
+        data: { title: rev.title, content: contentValue, contentText: rev.contentText },
+      });
+      // Record the restore as a fresh revision so it shows in the history.
+      await tx.docPageRevision.create({
+        data: {
+          pageId,
+          editorId: userId,
+          title: saved.title,
+          content: contentValue,
+          contentText: saved.contentText,
+        },
+      });
+      await this.pruneRevisions(tx, pageId);
+      return saved;
     });
-    // Record the restore as a fresh revision so it shows in the history.
-    await this.prisma.docPageRevision.create({
-      data: {
-        pageId,
-        editorId: userId,
-        title: updated.title,
-        content: contentValue,
-        contentText: updated.contentText,
-      },
-    });
-    await this.pruneRevisions(pageId);
     this.realtime.emitDocTreeChanged(page.spaceId);
     this.realtime.emitDocPageUpdated(page.spaceId, pageId);
     return updated;
