@@ -19,8 +19,8 @@ export default {
         paper: '#313338',
         ink: {
           DEFAULT: '#F2F3F5',
-          muted: '#B5BAC1',
-          subtle: '#80848E',
+          muted: '#d1d1d1',
+          subtle: '#a8acb3',
         },
         line: {
           DEFAULT: '#3F4147',
@@ -43,7 +43,7 @@ export default {
           online: '#23A55A',
           idle: '#F0B232',
           dnd: '#F23F43',
-          offline: '#80848E',
+          offline: '#a8acb3',
         },
         // Legacy accent aliases — kept so any leftover `sun-300`/`leaf-300`
         // references still resolve to the new equivalent palette.

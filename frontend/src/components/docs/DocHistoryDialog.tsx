@@ -143,7 +143,11 @@ export function DocHistoryDialog({ open, onClose, pageId, canWrite, onRestored }
               <span className="truncate font-display text-sm font-semibold text-[#1c1e24]">
                 {selected?.title ?? '…'}
               </span>
-              {canWrite && selectedId && (
+              {revs[0]?.id === selectedId ? (
+                <span className="shrink-0 text-[11px] font-medium text-ink-subtle">
+                  Current version
+                </span>
+              ) : canWrite && selectedId ? (
                 <button
                   onClick={() => void restore()}
                   disabled={restoring}
@@ -152,7 +156,7 @@ export function DocHistoryDialog({ open, onClose, pageId, canWrite, onRestored }
                   {restoring && <Spinner className="border-paper border-t-paper/40" />}
                   Restore
                 </button>
-              )}
+              ) : null}
             </div>
             <div className="doc-prose min-h-0 flex-1 overflow-y-auto py-2 scrollbar-thin">
               {selected ? (

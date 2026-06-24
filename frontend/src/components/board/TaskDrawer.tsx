@@ -425,6 +425,7 @@ function OverviewTab({
   // Local pending list of assignee ids — avoids a race when the user picks
   // several people in a row faster than the server can echo back.
   const [pendingAssignees, setPendingAssignees] = useState<string[] | null>(null);
+  const [assigneeQuery, setAssigneeQuery] = useState('');
   const effectiveAssigneeIds = pendingAssignees ?? task.assignees.map((a) => a.id);
 
   useEffect(() => {
@@ -550,36 +551,72 @@ function OverviewTab({
             {canEdit ? (
               <Popover
                 trigger={({ toggle }) => (
-                  <button onClick={toggle} className="input-flush flex w-full items-center justify-between gap-2 text-xs">
+                  <button
+                    onClick={() => {
+                      setAssigneeQuery('');
+                      toggle();
+                    }}
+                    className="input-flush flex w-full items-center justify-between gap-2 text-xs"
+                  >
                     <AssigneesSummary assignees={visibleAssignees} />
                     <Icon.Caret size={12} className="text-ink-subtle" />
                   </button>
                 )}
               >
-                {() => (
-                  <>
-                    {users.map((u) => {
-                      const active = assigneeSet.has(u.id);
-                      return (
-                        <PopoverItem
-                          key={u.id}
-                          active={active}
-                          onClick={() => toggleAssignee(u.id)}
-                          icon={
-                            <span className="inline-flex h-4 w-4 items-center justify-center">
-                              {active ? <Icon.Check size={12} /> : null}
-                            </span>
-                          }
-                        >
-                          <span className="flex items-center gap-2">
-                            <Avatar name={u.name} color={u.avatarColor} size="xs" />
-                            {u.name}
-                          </span>
-                        </PopoverItem>
-                      );
-                    })}
-                  </>
-                )}
+                {() => {
+                  const q = assigneeQuery.trim().toLowerCase();
+                  const shown = q
+                    ? users.filter(
+                        (u) =>
+                          u.name.toLowerCase().includes(q) ||
+                          u.email.toLowerCase().includes(q),
+                      )
+                    : users;
+                  return (
+                    <div className="w-[240px]">
+                      <div className="sticky top-0 z-10 bg-surface pb-1">
+                        <input
+                          autoFocus
+                          value={assigneeQuery}
+                          onChange={(e) => setAssigneeQuery(e.target.value)}
+                          placeholder="Search people…"
+                          className="w-full rounded-md bg-surface-sunken px-2 py-1.5 text-xs text-ink placeholder:text-ink-subtle focus-visible:shadow-focus"
+                        />
+                      </div>
+                      <div className="max-h-[260px] overflow-y-auto scrollbar-thin">
+                        {shown.length === 0 && (
+                          <div className="px-2 py-1.5 text-xs text-ink-subtle">No matches</div>
+                        )}
+                        {shown.map((u) => {
+                          const active = assigneeSet.has(u.id);
+                          return (
+                            <PopoverItem
+                              key={u.id}
+                              active={active}
+                              onClick={() => toggleAssignee(u.id)}
+                              icon={
+                                <span className="inline-flex h-4 w-4 items-center justify-center">
+                                  {active ? <Icon.Check size={12} /> : null}
+                                </span>
+                              }
+                            >
+                              <span className="flex items-center gap-2">
+                                <Avatar
+                                  name={u.name}
+                                  color={u.avatarColor}
+                                  size="xs"
+                                  userId={u.id}
+                                  avatarKey={u.avatarKey}
+                                />
+                                {u.name}
+                              </span>
+                            </PopoverItem>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }}
               </Popover>
             ) : (
               <div className="px-2 py-1.5">
@@ -648,6 +685,8 @@ function AssigneesSummary({ assignees }: { assignees: UserLite[] }) {
           name={assignees[0].name}
           color={assignees[0].avatarColor}
           size="xs"
+          userId={assignees[0].id}
+          avatarKey={assignees[0].avatarKey}
         />
         <span className="truncate text-ink">{assignees[0].name}</span>
       </span>
@@ -832,6 +871,7 @@ function SubtasksSection({
   const [addOpen, setAddOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+  const [assigneeQuery, setAssigneeQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -936,7 +976,10 @@ function SubtasksSection({
             trigger={({ toggle }) => (
               <button
                 type="button"
-                onClick={toggle}
+                onClick={() => {
+                  setAssigneeQuery('');
+                  toggle();
+                }}
                 className="btn-secondary h-7 px-2 text-xs"
                 title="Assignees"
               >
@@ -949,34 +992,64 @@ function SubtasksSection({
               </button>
             )}
           >
-            {() => (
-              <>
-                {users.map((u) => {
-                  const active = assigneeIds.includes(u.id);
-                  return (
-                    <PopoverItem
-                      key={u.id}
-                      active={active}
-                      onClick={() =>
-                        setAssigneeIds((prev) =>
-                          active ? prev.filter((x) => x !== u.id) : [...prev, u.id],
-                        )
-                      }
-                      icon={
-                        <span className="inline-flex h-4 w-4 items-center justify-center">
-                          {active ? <Icon.Check size={12} /> : null}
-                        </span>
-                      }
-                    >
-                      <span className="flex items-center gap-2">
-                        <Avatar name={u.name} color={u.avatarColor} size="xs" />
-                        {u.name}
-                      </span>
-                    </PopoverItem>
-                  );
-                })}
-              </>
-            )}
+            {() => {
+              const q = assigneeQuery.trim().toLowerCase();
+              const shown = q
+                ? users.filter(
+                    (u) =>
+                      u.name.toLowerCase().includes(q) ||
+                      u.email.toLowerCase().includes(q),
+                  )
+                : users;
+              return (
+                <div className="w-[240px]">
+                  <div className="sticky top-0 z-10 bg-surface pb-1">
+                    <input
+                      autoFocus
+                      value={assigneeQuery}
+                      onChange={(e) => setAssigneeQuery(e.target.value)}
+                      placeholder="Search people…"
+                      className="w-full rounded-md bg-surface-sunken px-2 py-1.5 text-xs text-ink placeholder:text-ink-subtle focus-visible:shadow-focus"
+                    />
+                  </div>
+                  <div className="max-h-[260px] overflow-y-auto scrollbar-thin">
+                    {shown.length === 0 && (
+                      <div className="px-2 py-1.5 text-xs text-ink-subtle">No matches</div>
+                    )}
+                    {shown.map((u) => {
+                      const active = assigneeIds.includes(u.id);
+                      return (
+                        <PopoverItem
+                          key={u.id}
+                          active={active}
+                          onClick={() =>
+                            setAssigneeIds((prev) =>
+                              active ? prev.filter((x) => x !== u.id) : [...prev, u.id],
+                            )
+                          }
+                          icon={
+                            <span className="inline-flex h-4 w-4 items-center justify-center">
+                              {active ? <Icon.Check size={12} /> : null}
+                            </span>
+                          }
+                        >
+                          <span className="flex items-center gap-2">
+                            <Avatar
+                              name={u.name}
+                              color={u.avatarColor}
+                              size="xs"
+                              userId={u.id}
+                              avatarKey={u.avatarKey}
+                            />
+                            {u.name}
+                          </span>
+                        </PopoverItem>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            }}
           </Popover>
           <button type="submit" className="btn-primary h-7 px-2 text-xs" disabled={busy}>
             {busy ? <Spinner /> : 'Add'}
