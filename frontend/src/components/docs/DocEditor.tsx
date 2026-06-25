@@ -93,6 +93,23 @@ export function DocEditor({ page, canWrite, defaultEditing, onSaved }: Props) {
     }
   };
 
+  // Leave edit mode without saving; reverts the editor to the page's saved state.
+  const cancelEdit = () => {
+    if (dirty && !confirm('Discard unsaved changes?')) return;
+    try {
+      const original =
+        Array.isArray(page.content) && page.content.length
+          ? (page.content as PartialBlock[])
+          : [{ type: 'paragraph' } as PartialBlock];
+      editor.replaceBlocks(editor.document, original);
+    } catch {
+      // best-effort revert
+    }
+    setTitle(page.title);
+    setDirty(false);
+    setEditing(false);
+  };
+
   // Save-on-leave safety: if you navigate away mid-edit with unsaved changes.
   useEffect(() => {
     return () => {
@@ -161,6 +178,13 @@ export function DocEditor({ page, canWrite, defaultEditing, onSaved }: Props) {
             <span className="text-[11px] font-medium text-[#5b6069]">
               {saving ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved'}
             </span>
+            <button
+              onClick={cancelEdit}
+              disabled={saving}
+              className="btn-secondary h-8 px-3.5 text-xs shadow-card disabled:opacity-50"
+            >
+              Cancel
+            </button>
             <button
               onClick={() => void save()}
               disabled={!dirty || saving}
