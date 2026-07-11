@@ -41,10 +41,12 @@ limiting (`@nest-lab/throttler-storage-redis`), Socket.IO Redis-адаптер
 ## 2. Архитектура
 
 - **Backend** — модульное NestJS-приложение. Модули: `auth` (JWT access +
-  ротация refresh, bcrypt), `users`, `projects`, `tasks`, `comments` (включая
-  @-упоминания), `labels`, `activity`, `notifications` (инбокс упоминаний,
-  прочитано/не прочитано), `admin`, `realtime` (WebSocket-шлюз), `storage` +
-  `attachments` (загрузка файлов в S3/MinIO), `health`, `config`.
+  ротация refresh, bcrypt, журнал попыток входа), `users`, `projects`, `tasks`,
+  `comments` (включая @-упоминания), `labels`, `activity`, `notifications`
+  (инбокс упоминаний, прочитано/не прочитано), `docs` (вики: пространства,
+  вложенные страницы, история версий, полнотекстовый поиск — независимая от
+  проектов область со своими ролями), `admin`, `realtime` (WebSocket-шлюз),
+  `storage` + `attachments` (загрузка файлов в S3/MinIO), `health`, `config`.
   Действует глобальный `ValidationPipe` (`whitelist` + `forbidNonWhitelisted` +
   `transform`), `helmet`, rate limiting (`@nestjs/throttler`) и структурированные
   JSON-логи (`nestjs-pino`) с redact'ом заголовков `Authorization` и `Cookie`.
@@ -56,13 +58,17 @@ limiting (`@nest-lab/throttler-storage-redis`), Socket.IO Redis-адаптер
   подзадачи, лейблы, множественные исполнители), управление участниками и ролями,
   страница «Мои задачи» (по всем проектам, дедлайн первым), инбокс уведомлений
   (упоминания/назначения/статусы/дедлайны, прочитано/не прочитано), фото профиля,
-  закрытые проекты, дашборд активности с глобальным inbox, админ-панель
-  (overview + per-service метрики). Axios-клиент с interceptor'ом, автоматически
+  закрытые проекты, дашборд активности с глобальным inbox, вики-раздел (Docs —
+  вложенные страницы в блочном редакторе, поиск, история версий с восстановлением,
+  доступ по приглашению), админ-панель (пользователи, весь список проектов в
+  системе, per-service метрики). Axios-клиент с interceptor'ом, автоматически
   обновляющим access-токен по ответу 401. Обновления в реальном времени
   поступают по Socket.IO (`/api/socket.io`).
 - **БД** — Prisma как source of truth (`backend/prisma/schema.prisma`). Сущности:
   `User`, `Project`, `ProjectMember` (роль участника), `Task`, `Label`,
-  `Comment`, `Activity`, `Attachment`, `Notification`, `RefreshToken`, а также
+  `Comment`, `Activity`, `Attachment`, `Notification`, `RefreshToken`,
+  `LoginEvent` (журнал попыток входа для админки), `DocSpace`,
+  `DocSpaceMember`, `DocPage`, `DocImage`, `DocPageRevision` (вики), а также
   связующие таблицы many-to-many (исполнители задач, лейблы задач).
 - **Прод** — образы собираются в CI и публикуются в Docker Hub; на сервере их
   разворачивает `docker-compose.prod.yml` за edge-nginx (`deploy/edge.conf`),
@@ -70,8 +76,9 @@ limiting (`@nest-lab/throttler-storage-redis`), Socket.IO Redis-адаптер
 
 ### Модель доступа
 
-- **Администратор** (`User.isAdmin`) — доступ к панели `/admin` и управлению
-  пользователями.
+- **Администратор** (`User.isAdmin`) — доступ к панели `/admin` (пользователи),
+  `/admin/projects` (все проекты в системе, независимо от владельца) и
+  `/admin/metrics`.
 - **Владелец проекта** (`Project.ownerId`) — всё, что может ADMIN, плюс
   удаление проекта. Владелец не является строкой участника.
 - **Роли участников** (`ProjectMember.role`):
@@ -87,14 +94,35 @@ limiting (`@nest-lab/throttler-storage-redis`), Socket.IO Redis-адаптер
 Закрытый проект (`Project.closedAt`) доступен только для чтения: любые изменения
 отклоняются до его переоткрытия владельцем или ADMIN'ом.
 
+### Роли в разделе Docs (вики)
+
+Раздел Docs (`/docs`) — независимая от проектов область: пространство
+(`DocSpace`) со своим владельцем и своим списком участников, доступ в проекты
+на него не переносится и наоборот.
+
+- **Владелец пространства** (`DocSpace.ownerId`) — управляет участниками и
+  единственный, кто может удалить пространство.
+- **Роли участников** (`DocSpaceMember.role`):
+  - `READER` — читает страницы, ищет по пространству;
+  - `WRITER` — дополнительно создаёт и редактирует страницы, грузит
+    изображения, восстанавливает более раннюю версию страницы.
+- Глобальный администратор (`User.isAdmin`) получает `WRITER` в любом
+  пространстве по умолчанию — это осознанный доступ для модерации, а не
+  побочный эффект.
+
+Каждое сохранение содержимого страницы создаёт снимок в `DocPageRevision`;
+хранится не более 50 последних версий на страницу, более старые вытесняются
+автоматически. Перемещение страницы под другого родителя проверяется на
+цикл: новый родитель не может оказаться потомком переносимой страницы.
+
 ### Структура репозитория
 
 ```
 backend/                 NestJS API
   prisma/                схема, миграции, seed
   src/                   модули: auth, users, projects, tasks, comments,
-                         labels, activity, notifications, admin, realtime,
-                         storage, attachments, health, config
+                         labels, activity, notifications, docs, admin,
+                         realtime, storage, attachments, health, config
   test/                  e2e-тесты
   Dockerfile             multi-stage, non-root, с HEALTHCHECK
 frontend/                React SPA
@@ -220,7 +248,24 @@ npx prisma migrate dev --name <короткое-описание>
 | GET | `/notifications` | Уведомления (упоминания, назначения, статусы, дедлайны) | Bearer |
 | GET | `/notifications/unread-count` | Число непрочитанных уведомлений | Bearer |
 | POST | `/notifications/read`, `/notifications/read-all` | Отметить прочитанными | Bearer |
+| GET, POST | `/docs/spaces` | Пространства вики: список / создать (создатель — владелец) | Bearer |
+| GET | `/docs/spaces/:id` | Пространство: заголовок + дерево страниц | Bearer (READER+) |
+| PATCH | `/docs/spaces/:id` | Переименовать пространство / сменить иконку | Bearer (WRITER+) |
+| DELETE | `/docs/spaces/:id` | Удалить пространство (каскадом — страницы и изображения) | Bearer (владелец) |
+| GET | `/docs/spaces/:id/search` | Полнотекстовый поиск по заголовкам и содержимому | Bearer (READER+) |
+| GET | `/docs/spaces/:id/members` | Участники пространства: список | Bearer (READER+) |
+| POST | `/docs/spaces/:id/members` | Пригласить участника | Bearer (владелец) |
+| PATCH, DELETE | `/docs/spaces/:id/members/:memberId` | Сменить роль участника / удалить | Bearer (владелец) |
+| POST | `/docs/spaces/:id/pages` | Создать страницу в пространстве | Bearer (WRITER+) |
+| GET | `/docs/pages/:id` | Страница целиком (контент) | Bearer (READER+) |
+| PATCH, DELETE | `/docs/pages/:id` | Изменить (заголовок, контент, родитель) / удалить | Bearer (WRITER+) |
+| GET | `/docs/pages/:id/revisions` | История версий страницы (до 50 записей) | Bearer (READER+) |
+| GET | `/docs/revisions/:id` | Снимок конкретной версии | Bearer (READER+) |
+| POST | `/docs/pages/:id/revisions/:revId/restore` | Откатить страницу к более ранней версии | Bearer (WRITER+) |
+| POST | `/docs/pages/:id/images` | Загрузить изображение в текст страницы (multipart, до 10 МБ) | Bearer (WRITER+) |
+| GET | `/docs/images/:id` | Получить байты изображения (авторизованный прокси) | Bearer (READER+) |
 | GET | `/admin/stats` | Статистика для админ-дашборда | Bearer + Admin |
+| GET | `/admin/projects` | Все проекты в системе, независимо от владельца (пагинация) | Bearer + Admin |
 | GET | `/admin/metrics` | Per-service метрики (Postgres/Redis/S3/backend) | Bearer + Admin |
 | GET | `/admin/users` | Расширенный список пользователей | Bearer + Admin |
 | GET | `/admin/users/:id/logins` | История входов пользователя | Bearer + Admin |
@@ -255,6 +300,10 @@ npx prisma migrate dev --name <короткое-описание>
 | `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` | backend | minio / us-east-1 / tracker-attachments | Параметры объектного хранилища (MinIO в Docker) |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | backend / minio | minioadmin (dev) | Ключи S3; в prod из секретов, ими же инициализируется MinIO |
 | `MAX_UPLOAD_BYTES` | backend | 26214400 (25 МБ) | Максимальный размер загружаемого файла |
+| `SLOW_QUERY_MS` | backend | 300 | Порог (мс), выше которого Prisma-запрос попадает в лог медленных запросов на `/admin/metrics` |
+| `METRICS_CACHE_TTL_MS` | backend | 30000 | TTL кэша агрегатов админ-метрик (Postgres/Redis/S3-размеры); общий на все реплики через Redis |
+| `BACKUP_STATUS_FILE` | backend | /backup-status.json | Путь к `status.json` бэкап-джоба restic внутри контейнера (в проде — read-only bind mount с хоста); карточка «Backups» на `/admin/metrics`. См. [BACKUPS.md](./BACKUPS.md) |
+| `APP_VERSION` / `GIT_SHA` / `BUILD_TIME` | build arg | dev / unknown / unknown | Метаданные сборки для панели «Build info» в `/admin/metrics`; в проде подставляются CI как `--build-arg` при сборке образа |
 | `SEED_ADMIN_PASSWORD` / `SEED_TEST_PASSWORD` | seed | — (обязательны) | Пароли seeded-учёток; без них seed завершается с ошибкой |
 | `VITE_API_URL` | frontend build arg | http://localhost:3000/api | Зашивается в бандл при сборке. Для прод-образа задаётся как GitHub repo variable и подставляется build-job'ом workflow |
 | `DOCKERHUB_USERNAME` | prod compose | — | Namespace образов в Docker Hub (совпадает с одноимённым secret) |
