@@ -16,7 +16,7 @@ frontend/.env.local
 
 # Local load-testing stack (k6 scripts, compose, results) — lives only on the
 # load generator machine, never committed.
-/loadtest/
+loadtest/results
 
 # Editor/OS noise
 .vscode/

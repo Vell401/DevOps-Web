@@ -291,6 +291,18 @@ jobs:
         working-directory: ${{ env.DEPLOY_DIR }}
         run: docker compose -f docker-compose.prod.yml --env-file .env up -d --remove-orphans
 
+      - name: Reload edge (nginx)
+        working-directory: ${{ env.DEPLOY_DIR }}
+        # edge.conf is a read-only bind mount, so `up -d` never restarts this
+        # container just because the file's contents changed on disk — nginx
+        # keeps running with whatever config (and cached backend/frontend DNS
+        # resolution) it read at its last start. `up -d` also doesn't recreate
+        # edge merely because backend/frontend got new images: their upstream
+        # hostnames resolve to new container IPs that edge never learns about
+        # until its own process restarts. Restarting here on every deploy picks
+        # up both the latest edge.conf and a fresh DNS lookup unconditionally.
+        run: docker compose -f docker-compose.prod.yml --env-file .env restart edge
+
       - name: Wait for readiness
         working-directory: ${{ env.DEPLOY_DIR }}
         run: |

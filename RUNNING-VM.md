@@ -632,7 +632,7 @@ docker compose -f docker-compose.prod.yml --env-file .env exec postgres \
 | Нет учётных записей для входа | выполнить seed: `docker compose -f docker-compose.prod.yml --env-file .env exec backend npm run prisma:seed` |
 | Какие миграции применены | `docker compose -f docker-compose.prod.yml --env-file .env run --rm backend npx prisma migrate status` |
 | Healthcheck не дожидается готовности | `docker compose logs backend` — обычно несовпадение `CORS_ORIGINS` либо БД не поднялась |
-| 502 от edge nginx | контейнер backend нездоров — `docker ps` и `docker compose logs backend` |
+| 502 от edge nginx, хотя `docker compose ps` показывает всё healthy | Docker-healthcheck backend бьёт напрямую в `127.0.0.1:3000` изнутри своего же контейнера — он не проверяет, что nginx вообще может достучаться до backend. Настоящая причина обычно в устаревшем DNS-кэше nginx: `edge.conf` резолвит `backend`/`frontend` в IP один раз при старте своего процесса; когда `up -d` пересоздаёт backend/frontend (новый контейнер → новый IP), nginx продолжает стучаться в старый мёртвый адрес, пока сам не перезапустится. С `resolver 127.0.0.11 valid=10s` в `edge.conf` и шагом `Reload edge (nginx)` в workflow (перезапуск `edge` на каждом деплое) это устранено структурно; если всё же встретилось — `docker compose restart edge` чинит немедленно. Если и это не помогло — тогда уже смотреть `docker compose logs backend` |
 | Браузер блокирует CORS | `CORS_ORIGINS` не точно соответствует Origin браузера (без завершающего слеша) — исправить секрет, передеплоить |
 | «password authentication failed» при подключении к БД | пароль в `.env` разошёлся со значением в томе Postgres — см. раздел 10 |
 
