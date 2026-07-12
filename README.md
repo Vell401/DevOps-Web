@@ -1,10 +1,31 @@
-# Task Tracker — техническое описание
+<p align="center">
+  <img src="docs/logo.png" width="96" alt="Tracker logo">
+</p>
 
-REST + SPA приложение «таск-трекер» (Jira): мультисервисный Docker Compose, миграции
-Prisma, JWT-аутентификация, health-пробы, структурированные логи, CI-CD сборка - тесты - публикация
-образов в Docker Hub - автоматический деплой на Linux-сервер через self-hosted
-GitHub Actions runner.
+<h1 align="center">Task Tracker</h1>
+<p align="center">
+  Мини-Jira с realtime-доской, вики и админкой — DevOps-стенд с полным CI/CD<br>
+  на self-hosted GitHub Actions раннере.
+</p>
 
+<p align="center">
+  <img alt="NestJS" src="https://img.shields.io/badge/NestJS-10-E0234E?style=flat&logo=nestdotjs&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react&logoColor=061428">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat&logo=typescript&logoColor=white">
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat&logo=postgresql&logoColor=white">
+  <img alt="Redis" src="https://img.shields.io/badge/Redis-7-DC382D?style=flat&logo=redis&logoColor=white">
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker&logoColor=white">
+  <br>
+  <a href="https://github.com/Vell401/DevOps-Web/actions/workflows/dev-cd.yml">
+    <img alt="dev deploy" src="https://github.com/Vell401/DevOps-Web/actions/workflows/dev-cd.yml/badge.svg?branch=dev">
+  </a>
+</p>
+
+<p align="center">
+  🗂 Канбан-доска · 📝 Вики · 🔔 Realtime-уведомления · 👥 Роли и права · 📊 Admin-метрики · 🚀 CI/CD на self-hosted раннере
+</p>
+
+---
 
 ## Превью:
 ### Projects:
