@@ -90,6 +90,16 @@
   .scrollbar-thin::-webkit-scrollbar-track {
     background: transparent;
   }
+
+  /* Documentation editor — the BlockNote sheet sits on a white "paper" surface,
+     so its own background is dropped and it inherits the app body font (instead
+     of the editor's default Inter). Block content keeps its native 54px gutter
+     which the page title is aligned to. */
+  .doc-prose {
+    --bn-colors-editor-background: transparent;
+    --bn-colors-editor-text: #2b2d31;
+    font-family: 'Geist', 'Plus Jakarta Sans', system-ui, sans-serif;
+  }
 }
 
 @layer utilities {
@@ -135,5 +145,17 @@
     background:
       radial-gradient(60% 80% at 0% 0%, rgba(88, 101, 242, 0.12), transparent 50%),
       radial-gradient(40% 60% at 100% 100%, rgba(35, 165, 90, 0.08), transparent 50%);
+  }
+}
+
+/* Gentle rise-in for the docs page sheet on mount. */
+@keyframes docIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

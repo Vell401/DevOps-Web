@@ -7,6 +7,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtAccessStrategy } from './strategies/jwt-access.strategy';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
+import { RefreshTokenCleanup } from './refresh-token-cleanup.service';
 import { UsersModule } from '../users/users.module';
 
 @Module({
@@ -22,7 +23,7 @@ import { UsersModule } from '../users/users.module';
     UsersModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAccessStrategy, JwtRefreshStrategy],
+  providers: [AuthService, JwtAccessStrategy, JwtRefreshStrategy, RefreshTokenCleanup],
   exports: [AuthService],
 })
 export class AuthModule {}

@@ -38,6 +38,29 @@ services:
       timeout: 3s
       retries: 5
 
+  # S3-compatible object storage for task attachments.
+  # Console UI at http://localhost:9001 (login = S3 access/secret key).
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    # Bound to localhost only — like postgres/redis, never exposed on the LAN.
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      # `mc ready local` is MinIO's documented liveness probe (the image
+      # bundles mc with a built-in alias for its own endpoint).
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -48,7 +71,9 @@ services:
       PORT: 3000
       LOG_LEVEL: ${LOG_LEVEL:-debug}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-tracker}:${POSTGRES_PASSWORD:-tracker}@postgres:5432/${POSTGRES_DB:-tracker}?schema=public
+      # Prisma connection pool size (default cpu*2+1 ≈ 5 on 2 cores); set
+      # explicitly so it's tunable. Override with DB_CONNECTION_LIMIT in .env.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tracker}:${POSTGRES_PASSWORD:-tracker}@postgres:5432/${POSTGRES_DB:-tracker}?schema=public&connection_limit=${DB_CONNECTION_LIMIT:-10}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev_access_secret_change_me}
@@ -57,10 +82,23 @@ services:
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
       THROTTLE_TTL: ${THROTTLE_TTL:-60}
       THROTTLE_LIMIT: ${THROTTLE_LIMIT:-120}
+      # Stricter per-IP throttle for auth routes (login/register/refresh).
+      # Defaults to 10/60s; raise only in a load-test environment.
+      THROTTLE_AUTH_TTL: ${THROTTLE_AUTH_TTL:-60}
+      THROTTLE_AUTH_LIMIT: ${THROTTLE_AUTH_LIMIT:-10}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-tracker-attachments}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_FORCE_PATH_STYLE: "true"
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-26214400}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     ports:
       - "3000:3000"
@@ -74,8 +112,10 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+    # The image is nginx-unprivileged (non-root), which listens on 8080.
     ports:
-      - "5173:80"
+      - "5173:8080"
 
 volumes:
   postgres_data:
+  minio_data:

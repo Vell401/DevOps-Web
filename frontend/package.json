@@ -7,11 +7,14 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview --port 5173 --host",
-    "lint": "eslint . --max-warnings=0",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings=0",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@blocknote/core": "^0.31.3",
+    "@blocknote/mantine": "^0.31.3",
+    "@blocknote/react": "^0.31.3",
     "axios": "^1.7.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

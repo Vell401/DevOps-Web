@@ -1,0 +1,22 @@
+# Task Tracker backup — runs the restic job as root.
+# Install (once, as root): see BACKUPS.md. Reference copy, not auto-deployed.
+#
+#   cp deploy/systemd/tracker-backup.* /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now tracker-backup.timer
+[Unit]
+Description=Task Tracker backup (restic: postgres + minio)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Environment=RESTIC_REPOSITORY=/opt/tracker/backups/restic
+Environment=RESTIC_PASSWORD_FILE=/root/.restic-pass
+Environment=DEPLOY_DIR=/opt/tracker
+# Enable deep data verification on the weekly run by passing this via a
+# drop-in/override, or run a separate weekly timer that sets it:
+#   Environment=BACKUP_CHECK_READ_DATA=1
+# Optional dead-man ping:
+#   Environment=BACKUP_PING_URL=https://hc-ping.com/<uuid>
+ExecStart=/opt/tracker/deploy/tracker-backup.sh

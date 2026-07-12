@@ -8,8 +8,9 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
+import { PageQueryDto } from '../../common/pagination';
 
-export class QueryTasksDto {
+export class QueryTasksDto extends PageQueryDto {
   @IsOptional()
   @IsEnum(TaskStatus)
   status?: TaskStatus;

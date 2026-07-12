@@ -27,10 +27,15 @@
 #   CORS_ORIGINS            comma-separated allowed origins, e.g. http://192.168.1.100
 #   SEED_ADMIN_PASSWORD     password for the seeded admin@tracker.local user
 #   SEED_TEST_PASSWORD      password for the seeded test@tracker.local user
+#   S3_ACCESS_KEY           MinIO/S3 access key (also MinIO root user)
+#   S3_SECRET_KEY           MinIO/S3 secret key (also MinIO root password)
 #
 # Required GitHub variables (optional, with sensible defaults):
 #   VITE_API_URL            URL baked into the frontend bundle (default: /api)
 #   DEPLOY_DIR              absolute path on the VM (default: /opt/tracker)
+#   THROTTLE_TTL / THROTTLE_LIMIT            global rate limit (default 60 / 120)
+#   THROTTLE_AUTH_TTL / THROTTLE_AUTH_LIMIT  auth-route rate limit (default 60 / 10)
+#   DB_CONNECTION_LIMIT     Prisma connection pool size (default 10)
 #
 # Self-hosted runner must be registered with the "dev" label, so a future
 # prod runner (labeled "prod") doesn't pick up this workflow by mistake.
@@ -124,11 +129,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compute immutable sha tag
+      - name: Compute build metadata
         id: tag
         run: |
           short=$(echo "${GITHUB_SHA}" | cut -c1-7)
           echo "sha_tag=sha-${short}" >> "$GITHUB_OUTPUT"
+          # Short SHA for the Build-info panel, so it matches the sha-<short>
+          # image tag above (the full 40-char hash overflows the small card).
+          echo "git_sha=${short}" >> "$GITHUB_OUTPUT"
+          # head_commit.timestamp is only set for push events; fall back to now
+          # so a workflow_dispatch rebuild still bakes a real, parseable date.
+          build_time="${{ github.event.head_commit.timestamp }}"
+          if [ -z "$build_time" ]; then
+            build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          fi
+          echo "build_time=${build_time}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -144,14 +159,33 @@ jobs:
         with:
           context: ${{ matrix.component.context }}
           push: true
+          # Immutable sha tag (what deploys/rollbacks reference) + the moving
+          # environment pointer. No ":latest": a moving default tag invites
+          # accidental deploys of whatever was built last.
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.component.image }}:${{ steps.tag.outputs.sha_tag }}
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.component.image }}:dev
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.component.image }}:latest
           cache-from: type=gha,scope=${{ matrix.component.name }}
           cache-to: type=gha,scope=${{ matrix.component.name }},mode=max
+          # Provenance args are consumed only by the backend image; emit them
+          # solely for that component so the frontend build doesn't warn about
+          # unconsumed build-args.
           build-args: |
             VITE_API_URL=${{ vars.VITE_API_URL || '/api' }}
+            ${{ matrix.component.name == 'backend' && format('GIT_SHA={0}', steps.tag.outputs.git_sha) || '' }}
+            ${{ matrix.component.name == 'backend' && format('BUILD_TIME={0}', steps.tag.outputs.build_time) || '' }}
+            ${{ matrix.component.name == 'backend' && format('APP_VERSION={0}', github.ref_name) || '' }}
+
+      # Gate the rollout on image vulnerabilities. Scoped to CRITICAL CVEs that
+      # already have a fix (ignore-unfixed) so the pipeline only fails when
+      # bumping a base image / dependency would actually resolve the finding.
+      - name: Scan image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.component.image }}:${{ steps.tag.outputs.sha_tag }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
 
   # ---------------------------------------------------------------------------
   # 3. DEPLOY — on the self-hosted runner, on the VM
@@ -187,6 +221,16 @@ jobs:
           mkdir -p "$DEPLOY_DIR/deploy"
           cp docker-compose.prod.yml "$DEPLOY_DIR/docker-compose.prod.yml"
           cp deploy/edge.conf "$DEPLOY_DIR/deploy/edge.conf"
+          # Backup script + systemd unit references (the host restic timer runs
+          # the committed script; units are installed once by root — see BACKUPS.md).
+          cp deploy/tracker-backup.sh "$DEPLOY_DIR/deploy/tracker-backup.sh"
+          chmod +x "$DEPLOY_DIR/deploy/tracker-backup.sh"
+          mkdir -p "$DEPLOY_DIR/deploy/systemd"
+          cp deploy/systemd/tracker-backup.* "$DEPLOY_DIR/deploy/systemd/"
+          # Placeholder so the backend's read-only bind mount of status.json
+          # exists on the very first `up` (the root job overwrites it later).
+          mkdir -p "$DEPLOY_DIR/backups"
+          [ -e "$DEPLOY_DIR/backups/status.json" ] || echo '{}' > "$DEPLOY_DIR/backups/status.json"
 
       - name: Write .env from secrets
         run: |
@@ -200,17 +244,25 @@ jobs:
           POSTGRES_USER=tracker
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB=tracker
+          DB_CONNECTION_LIMIT=${{ vars.DB_CONNECTION_LIMIT || '10' }}
           JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }}
           JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
           JWT_ACCESS_TTL=15m
           JWT_REFRESH_TTL=7d
           CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
           LOG_LEVEL=info
-          THROTTLE_TTL=60
-          THROTTLE_LIMIT=120
+          # Rate limits — overridable via repo Variables (Settings → Secrets and
+          # variables → Actions → Variables); default to the app's values. Raise
+          # the limits in a Variable for a load test, then revert.
+          THROTTLE_TTL=${{ vars.THROTTLE_TTL || '60' }}
+          THROTTLE_LIMIT=${{ vars.THROTTLE_LIMIT || '120' }}
+          THROTTLE_AUTH_TTL=${{ vars.THROTTLE_AUTH_TTL || '60' }}
+          THROTTLE_AUTH_LIMIT=${{ vars.THROTTLE_AUTH_LIMIT || '10' }}
           COMPOSE_PROJECT_NAME=tracker
           SEED_ADMIN_PASSWORD=${{ secrets.SEED_ADMIN_PASSWORD }}
           SEED_TEST_PASSWORD=${{ secrets.SEED_TEST_PASSWORD }}
+          S3_ACCESS_KEY=${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY=${{ secrets.S3_SECRET_KEY }}
           EOF
 
       - name: Log in to Docker Hub (on VM)

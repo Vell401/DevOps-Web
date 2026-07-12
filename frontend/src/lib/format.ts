@@ -34,6 +34,19 @@ export function formatDate(iso: string | null | undefined): string {
   });
 }
 
+/** Absolute date + time, e.g. "5 Jun 2026, 21:25" — for places that need the
+ *  exact moment (admin account-created column) rather than a relative "2d ago". */
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function toIsoDateInput(iso: string | null | undefined): string {
   if (!iso) return '';
   const d = new Date(iso);

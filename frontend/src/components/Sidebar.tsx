@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { projectsApi } from '../api/endpoints';
 import type { Project } from '../types';
 import { Icon } from '../ui/Icon';
 import { Avatar } from '../ui/Avatar';
 import { useAuth } from '../auth/AuthContext';
+import { ProfileDialog } from './ProfileDialog';
 import { cn } from '../lib/cn';
 
 interface Props {
   onCreateProject: () => void;
   refreshKey: number;
+  unreadNotifications: number;
 }
 
 const CLOSED_EXPANDED_KEY = 'tracker.sidebar.closedExpanded';
@@ -22,7 +24,7 @@ function readClosedExpanded(): boolean {
   }
 }
 
-export function Sidebar({ onCreateProject, refreshKey }: Props) {
+export function Sidebar({ onCreateProject, refreshKey, unreadNotifications }: Props) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -31,6 +33,7 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
   // Persist Closed-section open/closed across reloads.
   const [closedExpanded, setClosedExpanded] = useState<boolean>(readClosedExpanded);
   const [loadingClosed, setLoadingClosed] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -45,7 +48,7 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
     setLoading(true);
     projectsApi
       .list()
-      .then((r) => mounted && setProjects(r.data))
+      .then((list) => mounted && setProjects(list))
       .finally(() => mounted && setLoading(false));
     return () => {
       mounted = false;
@@ -59,7 +62,7 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
     setLoadingClosed(true);
     projectsApi
       .list({ closed: true })
-      .then((r) => mounted && setClosed(r.data))
+      .then((list) => mounted && setClosed(list))
       .finally(() => mounted && setLoadingClosed(false));
     return () => {
       mounted = false;
@@ -68,25 +71,29 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
 
   return (
     <aside className="flex h-full w-60 flex-col bg-surface-sunken">
-      <div className="flex items-center gap-2 px-4 pt-4 pb-3">
+      <Link
+        to="/projects"
+        className="flex items-center gap-2.5 px-4 pt-4 pb-3 transition hover:opacity-90"
+        title="Go to projects"
+      >
         <BrandMark />
         <div className="flex-1">
-          <div className="font-display text-[15px] font-semibold leading-tight text-ink">
+          <div className="font-display text-base font-semibold leading-tight text-ink">
             tracker
           </div>
           <div className="text-[11px] uppercase tracking-[0.14em] text-ink-subtle">
             workspace
           </div>
         </div>
-      </div>
+      </Link>
 
       <nav className="flex-1 overflow-y-auto px-2 scrollbar-thin">
         <NavSection>
           <NavLinkItem to="/projects" icon={<Icon.Layers size={14} />} label="All projects" end />
+          <NavLinkItem to="/my-tasks" icon={<Icon.Check size={14} />} label="My tasks" />
           <NavLinkItem to="/activity" icon={<Icon.Activity size={14} />} label="Activity" />
-          {user?.isAdmin && (
-            <NavLinkItem to="/admin" icon={<Icon.Sparkle size={14} />} label="Admin" />
-          )}
+          <NavLinkItem to="/docs" icon={<Icon.File size={14} />} label="Docs" />
+          {user?.isAdmin && <AdminNavSection />}
         </NavSection>
 
         <div className="mt-5 flex items-center justify-between px-3 pb-1.5">
@@ -146,13 +153,47 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
         />
       </nav>
 
+      {/* Pinned above the profile: the notification inbox with unread badge. */}
+      <div className="px-2 pt-1">
+        <NavLink
+          to="/notifications"
+          className={({ isActive }) =>
+            cn(
+              'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition',
+              isActive
+                ? 'bg-surface-hover text-ink'
+                : 'text-ink-muted hover:bg-surface-hover/60 hover:text-ink',
+            )
+          }
+        >
+          <Icon.Bell size={14} />
+          <span>Notifications</span>
+          {unreadNotifications > 0 && (
+            <span className="ml-auto inline-flex h-4 min-w-[18px] items-center justify-center rounded-full bg-status-dnd px-1 text-[10px] font-semibold leading-none text-white">
+              {unreadNotifications > 99 ? '99+' : unreadNotifications}
+            </span>
+          )}
+        </NavLink>
+      </div>
+
       <div className="p-2.5">
         <div className="flex items-center gap-2 rounded-md bg-surface-deep px-2.5 py-2">
-          <Avatar name={user?.name ?? '?'} color={(user as { avatarColor?: string })?.avatarColor} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-ink">{user?.name}</div>
-            <div className="truncate text-[11px] text-ink-subtle">{user?.email}</div>
-          </div>
+          <button
+            onClick={() => setProfileOpen(true)}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left transition hover:opacity-90"
+            title="View profile"
+          >
+            <Avatar
+              name={user?.name ?? '?'}
+              color={user?.avatarColor}
+              userId={user?.id}
+              avatarKey={user?.avatarKey}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-ink">{user?.name}</div>
+              <div className="truncate text-[11px] text-ink-subtle">{user?.email}</div>
+            </div>
+          </button>
           <button
             onClick={() => {
               void logout().then(() => navigate('/login'));
@@ -165,6 +206,8 @@ export function Sidebar({ onCreateProject, refreshKey }: Props) {
           </button>
         </div>
       </div>
+
+      <ProfileDialog open={profileOpen} onClose={() => setProfileOpen(false)} />
     </aside>
   );
 }
@@ -252,6 +295,70 @@ function NavSection({ children }: { children: React.ReactNode }) {
   return <ul className="space-y-0.5">{children}</ul>;
 }
 
+// Expandable Admin entry: reveals the admin sub-pages (Overview, System
+// metrics). Auto-opens whenever you're somewhere under /admin.
+function AdminNavSection() {
+  const location = useLocation();
+  const onAdmin = location.pathname.startsWith('/admin');
+  const [expanded, setExpanded] = useState(onAdmin);
+
+  useEffect(() => {
+    if (onAdmin) setExpanded(true);
+  }, [onAdmin]);
+
+  return (
+    <li>
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className={cn(
+          'flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm transition',
+          onAdmin
+            ? 'text-ink'
+            : 'text-ink-muted hover:bg-surface-hover/60 hover:text-ink',
+        )}
+      >
+        <Icon.Sparkle size={14} />
+        <span>Admin</span>
+        <Icon.Caret
+          size={10}
+          className={cn(
+            'ml-auto transition-transform',
+            expanded ? 'rotate-0' : '-rotate-90',
+          )}
+        />
+      </button>
+      {expanded && (
+        <ul className="mb-1 ml-4 space-y-0.5 border-l border-line pl-2">
+          <SubNavLink to="/admin" label="Overview" end />
+          <SubNavLink to="/admin/projects" label="All projects" />
+          <SubNavLink to="/admin/metrics" label="System metrics" />
+        </ul>
+      )}
+    </li>
+  );
+}
+
+function SubNavLink({ to, label, end }: { to: string; label: string; end?: boolean }) {
+  return (
+    <li>
+      <NavLink
+        to={to}
+        end={end}
+        className={({ isActive }) =>
+          cn(
+            'block rounded-md px-3 py-1.5 text-sm transition',
+            isActive
+              ? 'bg-surface-hover text-ink'
+              : 'text-ink-muted hover:bg-surface-hover/60 hover:text-ink',
+          )
+        }
+      >
+        {label}
+      </NavLink>
+    </li>
+  );
+}
+
 function NavLinkItem({
   to,
   icon,
@@ -336,7 +443,7 @@ function BrandMark() {
     <img
       src="/logo.png"
       alt="tracker"
-      className="h-9 w-9 shrink-0 object-contain"
+      className="h-[64px] w-[64px] shrink-0 object-contain"
     />
   );
 }

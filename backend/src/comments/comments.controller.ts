@@ -6,13 +6,14 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { CommentsService } from './comments.service';
-import { CreateCommentDto } from './dto/create-comment.dto';
+import { CreateCommentDto, UpdateCommentDto } from './dto/create-comment.dto';
 import { JwtAccessGuard } from '../auth/guards/jwt-access.guard';
 import { CurrentUser, AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
@@ -38,6 +39,15 @@ export class CommentsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.comments.create(taskId, user.userId, dto);
+  }
+
+  @Patch('comments/:id')
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCommentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.comments.update(id, user.userId, dto);
   }
 
   @Delete('comments/:id')

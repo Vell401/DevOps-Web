@@ -17,8 +17,8 @@ export function TaskListView({ tasks, projectKey, onOpen }: Props) {
   const visible = tasks.filter((t) => !t.parentId);
   return (
     <div className="flex-1 overflow-y-auto px-5 py-4">
-      <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-card">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-lg border border-line bg-surface shadow-card scrollbar-thin">
+        <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="border-b border-line text-xs uppercase tracking-wide text-ink-subtle">
               <Th className="w-20">Key</Th>

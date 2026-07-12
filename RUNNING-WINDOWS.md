@@ -14,8 +14,9 @@
   `docker compose version`.
 - **Git for Windows** — при необходимости клонирования репозитория.
 - Свободные порты хоста: `5173` (фронтенд), `3000` (API), `5432` (PostgreSQL),
-  `6379` (Redis). PostgreSQL и Redis публикуются только на интерфейсе
-  `127.0.0.1`.
+  `6379` (Redis), `9000`/`9001` (MinIO API/консоль). PostgreSQL, Redis и MinIO
+  публикуются только на интерфейсе `127.0.0.1`. Консоль MinIO —
+  <http://localhost:9001> (логин = `S3_ACCESS_KEY`/`S3_SECRET_KEY`).
 
 Все команды приведены для PowerShell. В Git Bash они также применимы; различается
 лишь копирование `.env` (`copy` в PowerShell против `cp` в Git Bash).

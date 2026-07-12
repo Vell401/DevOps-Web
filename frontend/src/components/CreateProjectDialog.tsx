@@ -4,6 +4,7 @@ import { Dialog } from '../ui/Dialog';
 import { Spinner } from '../ui/Spinner';
 import { projectsApi } from '../api/endpoints';
 import { useToast } from '../ui/Toast';
+import { apiError } from '../lib/apiError';
 
 interface Props {
   open: boolean;
@@ -30,8 +31,8 @@ export function CreateProjectDialog({ open, onClose, onCreated }: Props) {
       onCreated?.();
       onClose();
       navigate(`/projects/${data.id}`);
-    } catch {
-      toast.push('Could not create project', 'error');
+    } catch (err) {
+      toast.push(apiError(err, 'Could not create project'), 'error');
     } finally {
       setBusy(false);
     }

@@ -17,6 +17,7 @@ import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { QueryTasksDto } from './dto/query-tasks.dto';
+import { PageQueryDto } from '../common/pagination';
 import { JwtAccessGuard } from '../auth/guards/jwt-access.guard';
 import { CurrentUser, AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
@@ -43,6 +44,13 @@ export class TasksController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.tasks.create(projectId, user.userId, dto);
+  }
+
+  // NB: declared before 'tasks/:id' — otherwise "mine" would be parsed (and
+  // rejected) as a task UUID.
+  @Get('tasks/mine')
+  mine(@CurrentUser() user: AuthenticatedUser, @Query() query: PageQueryDto) {
+    return this.tasks.listMine(user.userId, query);
   }
 
   @Get('tasks/:id')

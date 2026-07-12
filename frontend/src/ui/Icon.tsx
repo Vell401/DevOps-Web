@@ -65,6 +65,13 @@ export const Icon = {
       <path d="M3 12h4l3-9 4 18 3-9h4" />
     </Base>
   ),
+  History: (p: IconProps) => (
+    <Base {...p}>
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l4 2" />
+    </Base>
+  ),
   Layers: (p: IconProps) => (
     <Base {...p}>
       <path d="M12 3l9 5-9 5-9-5 9-5z" />
@@ -139,6 +146,40 @@ export const Icon = {
     <Base {...p}>
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
       <path d="M16 17l5-5-5-5M21 12H9" />
+    </Base>
+  ),
+  Bell: (p: IconProps) => (
+    <Base {...p}>
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+    </Base>
+  ),
+  Edit: (p: IconProps) => (
+    <Base {...p}>
+      <path d="M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+    </Base>
+  ),
+  Paperclip: (p: IconProps) => (
+    <Base {...p}>
+      <path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-2.9-2.9l8.1-8.1" />
+    </Base>
+  ),
+  Upload: (p: IconProps) => (
+    <Base {...p}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="M17 8l-5-5-5 5" />
+      <path d="M12 3v12" />
+    </Base>
+  ),
+  Download: (p: IconProps) => (
+    <Base {...p}>
+      <path d="M12 4v11M7 11l5 5 5-5M5 20h14" />
+    </Base>
+  ),
+  File: (p: IconProps) => (
+    <Base {...p}>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" />
+      <path d="M14 3v5h5" />
     </Base>
   ),
 };

@@ -33,7 +33,7 @@ export function Dialog({ open, onClose, title, description, children, width = 44
         role="dialog"
         aria-modal="true"
         className={cn(
-          'relative w-full rounded-lg border border-line bg-surface shadow-drawer animate-[pop_180ms_ease-out]',
+          'relative flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-y-auto rounded-lg border border-line bg-surface shadow-drawer animate-[pop_180ms_ease-out]',
         )}
         style={{ maxWidth: width }}
       >

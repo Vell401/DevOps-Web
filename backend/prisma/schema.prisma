@@ -53,66 +53,122 @@ enum ActivityType {
   COMMENT_ADDED
 }
 
-model User {
-  id             String         @id @default(uuid())
-  email          String         @unique
-  passwordHash   String
-  name           String
-  avatarColor    String         @default("gray")
-  isAdmin        Boolean        @default(false)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+// Extensible on purpose: assignment / status-change notifications can be
+// added later without schema changes beyond a new enum value.
+enum NotificationType {
+  MENTIONED
+  ASSIGNED
+  TASK_STATUS_CHANGED
+  DUE_SOON
+}
 
-  projects       Project[]      @relation("ProjectOwner")
-  memberProjects Project[]      @relation("ProjectMembers")
-  assignedTasks  Task[]         @relation("TaskAssignees")
-  comments       Comment[]
-  activities     Activity[]
-  refreshTokens  RefreshToken[]
+// Per-project member roles. The owner is NOT a member row — ownership lives on
+// Project.ownerId and always outranks every role.
+enum ProjectRole {
+  VIEWER
+  EDITOR
+  ADMIN
+}
+
+// Per-doc-space roles. The space owner (DocSpace.ownerId) outranks both and is
+// not a member row. READER = view; WRITER = view + edit pages / upload images.
+enum DocRole {
+  READER
+  WRITER
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  avatarColor  String    @default("gray")
+  avatarKey    String? // object key of the uploaded profile photo in S3/MinIO
+  isAdmin      Boolean   @default(false)
+  blocked      Boolean   @default(false)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  projects          Project[]       @relation("ProjectOwner")
+  memberships       ProjectMember[]
+  assignedTasks     Task[]          @relation("TaskAssignees")
+  comments          Comment[]
+  activities        Activity[]
+  attachments       Attachment[]
+  refreshTokens     RefreshToken[]
+  loginEvents       LoginEvent[]
+  notifications     Notification[]  @relation("NotificationRecipient")
+  sentNotifications Notification[]  @relation("NotificationActor")
+  docSpaces         DocSpace[]       @relation("DocSpaceOwner")
+  docMemberships    DocSpaceMember[]
+  docImages         DocImage[]
+  docRevisions      DocPageRevision[] @relation("DocRevisionEditor")
 }
 
 model Project {
-  id          String    @id @default(uuid())
-  key         String    @unique
+  id          String          @id @default(uuid())
+  key         String          @unique
   name        String
   description String?
   ownerId     String
-  owner       User      @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  members     User[]    @relation("ProjectMembers")
-  taskCounter Int       @default(0)
+  owner       User            @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  memberships ProjectMember[]
+  taskCounter Int             @default(0)
   closedAt    DateTime?
   tasks       Task[]
   labels      Label[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
   @@index([ownerId])
   @@index([closedAt])
 }
 
+// Explicit membership with a role. Assigning a task to a non-member
+// auto-creates an EDITOR row, so "access" is always: owner OR member row.
+model ProjectMember {
+  projectId String
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      ProjectRole @default(EDITOR)
+  createdAt DateTime    @default(now())
+
+  @@id([projectId, userId])
+  @@index([userId])
+}
+
 model Task {
-  id          String       @id @default(uuid())
-  number      Int
-  title       String
-  description String?
-  status      TaskStatus   @default(TODO)
-  priority    TaskPriority @default(MEDIUM)
-  position    Float        @default(0)
-  dueDate     DateTime?
-  projectId   String
-  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  assignees   User[]       @relation("TaskAssignees")
-  parentId    String?
-  parent      Task?        @relation("Subtasks", fields: [parentId], references: [id], onDelete: SetNull)
-  subtasks    Task[]       @relation("Subtasks")
-  comments    Comment[]
-  activities  Activity[]
-  labels      Label[]      @relation("TaskLabels")
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id            String         @id @default(uuid())
+  number        Int
+  title         String
+  description   String?
+  status        TaskStatus     @default(TODO)
+  priority      TaskPriority   @default(MEDIUM)
+  position      Float          @default(0)
+  dueDate       DateTime?
+  projectId     String
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignees     User[]         @relation("TaskAssignees")
+  parentId      String?
+  parent        Task?          @relation("Subtasks", fields: [parentId], references: [id], onDelete: SetNull)
+  subtasks      Task[]         @relation("Subtasks")
+  comments      Comment[]
+  activities    Activity[]
+  attachments   Attachment[]
+  labels        Label[]        @relation("TaskLabels")
+  notifications Notification[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   @@unique([projectId, number])
-  @@index([projectId])
+  // Composite (projectId, status) serves the hot per-project status filters —
+  // the DONE roll-up on the project list, close()/syncClosureState counts — and
+  // also covers projectId-only lookups via its left prefix, so a standalone
+  // projectId index would be redundant. A status-only index stays for global
+  // status filters (admin stats, due-soon sweeps).
+  @@index([projectId, status])
   @@index([status])
   @@index([parentId])
 }
@@ -131,16 +187,41 @@ model Label {
 }
 
 model Comment {
-  id        String   @id @default(uuid())
-  body      String
-  taskId    String
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  authorId  String
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String         @id @default(uuid())
+  body          String
+  taskId        String
+  task          Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId      String
+  author        User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  notifications Notification[]
+  attachments   Attachment[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   @@index([taskId])
+}
+
+// In-app notification inbox. A row per recipient: "actor mentioned you in a
+// comment on task X". `readAt` doubles as the unread flag (null = unread).
+// Task/comment links cascade — when the source disappears, so does the
+// notification; the actor is kept nullable so deleting a user preserves the
+// recipient's history.
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actorId   String?
+  actor     User?            @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  type      NotificationType
+  taskId    String?
+  task      Task?            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  commentId String?
+  comment   Comment?         @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
 }
 
 model Activity {
@@ -158,6 +239,27 @@ model Activity {
   @@index([actorId])
 }
 
+model Attachment {
+  id         String   @id @default(uuid())
+  taskId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploaderId String
+  uploader   User     @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  // Set when the file was attached via a comment; it still belongs to the task
+  // (and shows in the Files tab), but renders inline inside that comment.
+  commentId  String?
+  comment    Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  key        String   @unique // object key in the S3/MinIO bucket
+  filename   String // original client filename
+  mimeType   String
+  size       Int // bytes
+  createdAt  DateTime @default(now())
+
+  @@index([taskId])
+  @@index([uploaderId])
+  @@index([commentId])
+}
+
 model RefreshToken {
   id        String   @id @default(uuid())
   tokenHash String   @unique
@@ -167,4 +269,104 @@ model RefreshToken {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+// Audit trail of authentication attempts, surfaced per-user in the admin panel.
+// Records successes and failed password / blocked attempts for known accounts.
+// Privacy: we keep the source IP and user-agent, but never any credentials.
+model LoginEvent {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  success   Boolean  @default(true)
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ---- Documentation (wiki) ----
+// A DocSpace is a wiki owned by its creator, shared with members (READER/WRITER).
+// It holds a tree of DocPages (Notion-style: any page may have children). Page
+// content is the editor's block JSON; contentText is a flattened copy for search.
+
+model DocSpace {
+  id        String           @id @default(uuid())
+  name      String
+  icon      String?
+  ownerId   String
+  owner     User             @relation("DocSpaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members   DocSpaceMember[]
+  pages     DocPage[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([ownerId])
+}
+
+model DocSpaceMember {
+  spaceId   String
+  space     DocSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      DocRole  @default(WRITER)
+  createdAt DateTime @default(now())
+
+  @@id([spaceId, userId])
+  @@index([userId])
+}
+
+model DocPage {
+  id          String     @id @default(uuid())
+  spaceId     String
+  space       DocSpace   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  parentId    String?
+  parent      DocPage?   @relation("DocTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    DocPage[]  @relation("DocTree")
+  title       String     @default("Untitled")
+  icon        String?
+  // Editor block document (BlockNote JSON). Null = empty page.
+  content     Json?
+  // Flattened plain text of `content`, kept in sync on save, for search.
+  contentText String     @default("")
+  position    Float      @default(0)
+  images      DocImage[]
+  revisions   DocPageRevision[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([spaceId, parentId])
+}
+
+model DocImage {
+  id         String   @id @default(uuid())
+  pageId     String
+  page       DocPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  uploaderId String
+  uploader   User     @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  key        String   @unique // object key in the S3/MinIO bucket
+  filename   String
+  mimeType   String
+  size       Int
+  createdAt  DateTime @default(now())
+
+  @@index([pageId])
+}
+
+// Point-in-time snapshot of a DocPage, written on each (manual) save. Powers the
+// version history: who saved what and when, plus restore. `editor` is nullable
+// so deleting a user keeps the history; capped per page in the service.
+model DocPageRevision {
+  id          String   @id @default(uuid())
+  pageId      String
+  page        DocPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  editorId    String?
+  editor      User?    @relation("DocRevisionEditor", fields: [editorId], references: [id], onDelete: SetNull)
+  title       String
+  content     Json?
+  contentText String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@index([pageId, createdAt])
 }

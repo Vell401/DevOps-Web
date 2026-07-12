@@ -11,7 +11,7 @@
 push в dev ──► GitHub Actions (ubuntu-latest)          push в main ──► то же
                    │                                                      │
                    ├── test    (postgres-сервис, jest, vitest)            │
-                   ├── build   (Buildx → Docker Hub :sha-XXXX, :dev/:prod, :latest)
+                   ├── build   (Buildx → Docker Hub :sha-XXXX, :dev/:prod + Trivy-скан)
                    ▼                                                      ▼
         self-hosted runner "dev" на dev-сервере      self-hosted runner "prod"
                    │                                       (на отдельном сервере)
@@ -45,6 +45,8 @@ runner'ом с лейблом `dev`, ветка `main` — runner'ом с лей
 - [ ] `CORS_ORIGINS` — `http://<IP_сервера>` (значение определяется после шага 1)
 - [ ] `SEED_ADMIN_PASSWORD` — пароль для seeded admin@tracker.local
 - [ ] `SEED_TEST_PASSWORD` — пароль для seeded test@tracker.local
+- [ ] `S3_ACCESS_KEY` — ключ доступа MinIO/S3 (им же инициализируется MinIO)
+- [ ] `S3_SECRET_KEY` — секретный ключ MinIO/S3
 
 Пайплайны `dev` и `prod` по умолчанию используют один и тот же набор секретов
 уровня репозитория. При необходимости изолировать значения по средам применяются
@@ -216,7 +218,7 @@ sudo ls /opt/tracker
 # docker-compose.prod.yml  deploy/  .env
 
 sudo -iu deploy docker ps
-# postgres, redis, backend, frontend, edge — все Up (healthy)
+# postgres, redis, minio, backend, frontend, edge — все Up (healthy)
 
 curl -sS http://localhost/api/health/ready
 # {"status":"ok","info":{"database":{"status":"up"}}, ...}
@@ -279,6 +281,21 @@ docker compose -f docker-compose.prod.yml --env-file .env logs --tail=80 backend
     комментарии).
 - **Recent signups** — последние пять регистраций.
 
+### Страница системных метрик (`/admin/metrics`)
+
+Вторая вкладка админки — живой per-service дашборд (обновление каждые 10 с):
+
+- **Карточки сервисов** со статусом (🟢/🔴/⚪), аптаймом и размерами: backend
+  (RSS/heap-память, версия Node), PostgreSQL (размер БД на диске, число
+  подключений, версия), Redis (занятая память, ключи, клиенты — либо «Disabled»,
+  если `REDIS_HOST` не задан), объектное хранилище S3 (объём вложений, файлы).
+- **HTTP-запросы** (всего, по классам статусов и методам, график за 30 минут),
+  **медленные запросы** и **срабатывания rate-limit по маршрутам**, **build-info**.
+
+Тяжёлые показатели (размеры Postgres/Redis/S3, активные сессии) кэшируются и
+шарятся между репликами через Redis, поэтому поллинг дешёв. Docker-сокет не
+используется — каждый сервис отдаёт данные по своему протоколу.
+
 ### Защитные ограничения админ-сервиса
 
 В код встроены два ограничения:
@@ -340,8 +357,8 @@ docker compose -f docker-compose.prod.yml --env-file .env exec \
 ### 5.3 Полная очистка БД (включая пользователей)
 
 Сброс к абсолютно чистой базе. Каскад (`CASCADE`) автоматически очищает
-связующие таблицы many-to-many (`_TaskLabels`, `_TaskAssignees`,
-`_ProjectMembers`):
+зависимые таблицы (`ProjectMember`, `Notification`, `Attachment`, `LoginEvent`)
+и связующие many-to-many (`_TaskLabels`, `_TaskAssignees`):
 
 ```bash
 # Сначала резервная копия (см. 5.1) — без неё восстановление невозможно.
@@ -466,45 +483,15 @@ Workflow пропускает test и build (тег задан явно) и ср
 
 ---
 
-## 7. Ночные резервные копии Postgres
+## 7. Резервные копии
 
-Вариант для пет-проекта: cron на сервере создаёт дамп в `/opt/tracker/backups/`.
+Бэкапы (PostgreSQL + MinIO через `restic`: установка, настройка systemd-timer,
+расписание/ретеншн, восстановление, ежемесячный drill, статус в админ-панели,
+ограничения) вынесены в отдельный документ — **[BACKUPS.md](./BACKUPS.md)**.
 
-```bash
-sudo install -d -o deploy -g deploy /opt/tracker/backups
-sudo install -m 0755 /dev/stdin /usr/local/bin/tracker-backup.sh <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-cd /opt/tracker
-TS=$(date -u +%Y%m%dT%H%M%SZ)
-docker compose -f docker-compose.prod.yml --env-file .env exec -T postgres \
-  pg_dump -U "$(grep ^POSTGRES_USER .env | cut -d= -f2)" \
-          -d "$(grep ^POSTGRES_DB   .env | cut -d= -f2)" \
-  | gzip > "backups/tracker-${TS}.sql.gz"
-# хранение 14 дней
-find backups -type f -name 'tracker-*.sql.gz' -mtime +14 -delete
-EOF
-```
-
-Crontab пользователя `deploy`:
-
-```bash
-sudo -iu deploy crontab -e
-# добавить строку:
-15 3 * * *  /usr/local/bin/tracker-backup.sh >> /opt/tracker/backups/backup.log 2>&1
-```
-
-Восстановление (backend предварительно останавливается):
-
-```bash
-sudo -iu deploy
-cd /opt/tracker
-docker compose -f docker-compose.prod.yml --env-file .env stop backend
-gunzip -c backups/tracker-20260606T030015Z.sql.gz | \
-  docker compose -f docker-compose.prod.yml --env-file .env exec -T postgres \
-    psql -U tracker -d tracker
-docker compose -f docker-compose.prod.yml --env-file .env start backend
-```
+Кратко: на сервере один раз руками ставится `restic`, создаётся репозиторий и
+systemd-timer (от root), который каждые 6 часов кладёт зашифрованные снапшоты в
+`/opt/tracker/backups/restic`. Статус последнего прогона виден в `/admin/metrics`.
 
 ---
 

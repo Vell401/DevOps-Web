@@ -39,13 +39,107 @@ export interface User {
   email: string;
   name: string;
   avatarColor?: string;
+  avatarKey?: string | null;
   isAdmin?: boolean;
   createdAt: string;
 }
 
 export interface AdminUser extends User {
   updatedAt: string;
+  blocked: boolean;
+  lastLoginAt: string | null;
   stats: { projects: number; tasks: number; comments: number };
+}
+
+/** One row of the admin-wide project list (GET /admin/projects): every project
+ *  regardless of ownership, with owner, member count and task roll-up. */
+export interface AdminProject {
+  id: string;
+  key: string;
+  name: string;
+  closedAt: string | null;
+  createdAt: string;
+  owner: UserLite;
+  members: number;
+  stats: { total: number; done: number };
+}
+
+export interface LoginEvent {
+  id: string;
+  success: boolean;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: string;
+}
+
+/** Health of a backing service on the metrics dashboard. */
+export type ServiceStatus = 'up' | 'down' | 'disabled';
+
+export interface AdminMetrics {
+  realtime: { connections: number; onlineUsers: number };
+  sessions: number;
+  storage: { totalBytes: number; fileCount: number };
+  slowQueries: { model: string; action: string; durationMs: number; at: string }[];
+  slowQueryThresholdMs: number;
+  rateLimit: { total: number; byRoute: { route: string; count: number }[] };
+  http: {
+    total: number;
+    byClass: Record<string, number>;
+    byMethod: { method: string; count: number }[];
+    avgMs: number;
+    perMinute: { minute: string; count: number }[];
+  };
+  services: {
+    backend: {
+      status: ServiceStatus;
+      uptimeSec: number;
+      version: string;
+      rssMb: number;
+      heapUsedMb: number;
+    };
+    postgres: {
+      status: ServiceStatus;
+      sizeBytes: number;
+      version: string;
+      uptimeSec: number;
+      connections: number;
+    };
+    redis: {
+      status: ServiceStatus;
+      usedMemoryBytes: number;
+      keys: number;
+      version: string;
+      uptimeSec: number;
+      connectedClients: number;
+    };
+    objectStorage: {
+      status: ServiceStatus;
+      sizeBytes: number;
+      fileCount: number;
+    };
+  };
+  backup: {
+    status: 'ok' | 'failed' | 'stale' | 'unknown';
+    lastRunAt: string | null;
+    ageSec: number | null;
+    ok: boolean;
+    snapshots: number;
+    repoSizeBytes: number;
+    lastCheckOk: boolean | null;
+    error: string | null;
+    oldest: string | null;
+    retention: { last: number; daily: number; weekly: number; monthly: number } | null;
+    recentDays: { date: string; db: boolean; minio: boolean; ok: boolean }[];
+    recent: { time: string; tag: string; id: string }[];
+  };
+  build: {
+    version: string;
+    gitSha: string;
+    buildTime: string;
+    nodeEnv: string;
+    startedAt: string;
+  };
+  derivedAt: string;
 }
 
 export interface AdminStats {
@@ -63,6 +157,16 @@ export interface UserLite {
   name: string;
   email: string;
   avatarColor?: string;
+  /** Set when the user uploaded a profile photo (cache-busts on re-upload). */
+  avatarKey?: string | null;
+}
+
+export type ProjectRole = 'VIEWER' | 'EDITOR' | 'ADMIN';
+/** Effective role: ownership outranks every member role. */
+export type EffectiveRole = ProjectRole | 'OWNER';
+
+export interface ProjectMemberInfo extends UserLite {
+  role: ProjectRole;
 }
 
 export interface Project {
@@ -79,6 +183,8 @@ export interface Project {
   // Present on the list endpoint (GET /projects); omitted by GET /projects/:id.
   owner?: UserLite;
   members?: UserLite[];
+  // Present on GET /projects/:id — the caller's effective role.
+  myRole?: EffectiveRole;
 }
 
 export interface Label {
@@ -122,8 +228,23 @@ export interface Comment {
   taskId: string;
   authorId: string;
   author?: UserLite;
+  attachments?: Attachment[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Attachment {
+  id: string;
+  taskId: string;
+  /** Set when the file was attached via a comment (renders inline there). */
+  commentId?: string | null;
+  uploaderId: string;
+  uploader?: UserLite;
+  key: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
 }
 
 export interface Activity {
@@ -148,4 +269,113 @@ export interface ActivityStats {
   topContributors: { userId: string; name: string; avatarColor?: string; count: number }[];
   mostActiveTasks: { taskId: string; number: number; title: string; count: number }[];
   totalEvents30d: number;
+}
+
+/** Cursor-paginated list response (tasks, projects, activity feeds). */
+export interface Paginated<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+// ---- Documentation (wiki) ----
+export type DocRole = 'READER' | 'WRITER';
+export type EffectiveDocRole = DocRole | 'OWNER';
+
+/** A doc space as it appears in the spaces list. */
+export interface DocSpaceLite {
+  id: string;
+  name: string;
+  icon: string | null;
+  ownerId: string;
+  owner: UserLite;
+  pageCount: number;
+  createdAt: string;
+  myRole: EffectiveDocRole;
+}
+
+/** Tree node (title/icon/parent only — page content is fetched separately). */
+export interface DocPageNode {
+  id: string;
+  title: string;
+  icon: string | null;
+  parentId: string | null;
+  position: number;
+  updatedAt: string;
+}
+
+export interface DocSpaceDetail {
+  id: string;
+  name: string;
+  icon: string | null;
+  ownerId: string;
+  owner: UserLite;
+  createdAt: string;
+  myRole: EffectiveDocRole;
+  pages: DocPageNode[];
+}
+
+export interface DocPage {
+  id: string;
+  spaceId: string;
+  parentId: string | null;
+  title: string;
+  icon: string | null;
+  /** BlockNote block document. Null on a brand-new page. */
+  content: unknown[] | null;
+  contentText: string;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocMemberInfo extends UserLite {
+  role: DocRole;
+}
+
+export interface DocSearchHit {
+  id: string;
+  title: string;
+  icon: string | null;
+  parentId: string | null;
+  snippet: string;
+}
+
+/** One entry in a page's version history (no content — fetched on demand). */
+export interface DocRevisionMeta {
+  id: string;
+  title: string;
+  createdAt: string;
+  editor: UserLite | null;
+}
+
+export interface DocRevision {
+  id: string;
+  pageId: string;
+  title: string;
+  content: unknown[] | null;
+  contentText: string;
+  createdAt: string;
+}
+
+export type AppNotificationType =
+  | 'MENTIONED'
+  | 'ASSIGNED'
+  | 'TASK_STATUS_CHANGED'
+  | 'DUE_SOON';
+
+/** In-app notification ("X mentioned you in a comment on PRJ-12"). */
+export interface AppNotification {
+  id: string;
+  type: AppNotificationType;
+  /** null = unread; ISO timestamp once the user has seen it. */
+  readAt: string | null;
+  createdAt: string;
+  actor?: UserLite | null;
+  task?: {
+    id: string;
+    number: number;
+    title: string;
+    project?: { id: string; key: string; name: string };
+  } | null;
+  comment?: { id: string; body: string } | null;
 }

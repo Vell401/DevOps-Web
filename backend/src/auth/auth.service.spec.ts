@@ -76,4 +76,63 @@ describe('AuthService', () => {
       ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
+
+  describe('refresh (token rotation)', () => {
+    /** Register a user through the real service so we get a refresh token
+     *  signed with the configured refresh secret. */
+    async function registerAndGetToken(): Promise<string> {
+      prismaMock.user.findUnique.mockResolvedValueOnce(null);
+      prismaMock.user.create.mockResolvedValueOnce({ id: 'u1', email: 'a@a.io' });
+      prismaMock.refreshToken.create.mockResolvedValue({});
+      const { refreshToken } = await service.register({
+        email: 'a@a.io',
+        name: 'A',
+        password: 'password123',
+      });
+      return refreshToken;
+    }
+
+    it('consumes the old token and issues a different pair', async () => {
+      const oldToken = await registerAndGetToken();
+      prismaMock.refreshToken.deleteMany.mockResolvedValueOnce({ count: 1 });
+
+      const pair = await service.refresh(oldToken);
+
+      expect(pair.accessToken).toBeDefined();
+      expect(pair.refreshToken).not.toBe(oldToken);
+      // The old token is consumed atomically, scoped to its owner and expiry.
+      expect(prismaMock.refreshToken.deleteMany).toHaveBeenCalledWith({
+        where: {
+          tokenHash: expect.any(String),
+          userId: 'u1',
+          expiresAt: { gt: expect.any(Date) },
+        },
+      });
+      // register + refresh each persist a hashed refresh token.
+      expect(prismaMock.refreshToken.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('revokes the whole token family on replay of a consumed token', async () => {
+      const oldToken = await registerAndGetToken();
+      // deleteMany consumed 0 rows → token already used (replay) or unknown.
+      prismaMock.refreshToken.deleteMany
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValueOnce({ count: 3 });
+
+      await expect(service.refresh(oldToken)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      // Second call wipes every session of the user — possible token theft.
+      expect(prismaMock.refreshToken.deleteMany).toHaveBeenLastCalledWith({
+        where: { userId: 'u1' },
+      });
+    });
+
+    it('rejects a malformed token without touching the database', async () => {
+      await expect(service.refresh('not-a-jwt')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(prismaMock.refreshToken.deleteMany).not.toHaveBeenCalled();
+    });
+  });
 });

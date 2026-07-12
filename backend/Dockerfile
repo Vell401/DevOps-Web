@@ -22,7 +22,11 @@ RUN npm prune --omit=dev
 FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apk add --no-cache openssl tini \
+# apk upgrade keeps base-image libs at the branch's latest security patches —
+# the CI Trivy gate fails the build on fixable CRITICALs (same policy as the
+# frontend image).
+RUN apk upgrade --no-cache \
+  && apk add --no-cache openssl tini \
   && addgroup -S app && adduser -S app -G app
 
 COPY --from=build --chown=app:app /app/node_modules ./node_modules
@@ -33,6 +37,15 @@ COPY --from=build --chown=app:app /app/package.json ./package.json
 # compiles as CommonJS. Without it ts-node falls back to ESM and Node 20 fails on
 # the seed's top-level await with ERR_UNKNOWN_FILE_EXTENSION for ".ts".
 COPY --from=build --chown=app:app /app/tsconfig.json ./tsconfig.json
+
+# Build provenance surfaced in the admin "Build info" panel. Supplied at build
+# time, e.g. --build-arg GIT_SHA=$(git rev-parse --short HEAD) --build-arg BUILD_TIME=$(date -u +%FT%TZ)
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=unknown
+ARG APP_VERSION=dev
+ENV GIT_SHA=$GIT_SHA \
+    BUILD_TIME=$BUILD_TIME \
+    APP_VERSION=$APP_VERSION
 
 USER app
 EXPOSE 3000

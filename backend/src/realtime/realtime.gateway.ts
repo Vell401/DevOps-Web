@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { forwardRef, Inject, Logger } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -14,6 +14,8 @@ import { Server, Socket } from 'socket.io';
 
 import { AppConfigService } from '../config/app-config.service';
 import { ProjectsService } from '../projects/projects.service';
+import { MetricsService } from '../metrics/metrics.service';
+import { PrismaService } from '../prisma/prisma.service';
 import type { JwtPayload } from '../auth/auth.service';
 
 interface AuthedSocket extends Socket {
@@ -44,10 +46,19 @@ export class RealtimeGateway
   @WebSocketServer() server!: Server;
   private readonly log = new Logger(RealtimeGateway.name);
 
+  // Live connection counters for the admin metrics panel. `connections` counts
+  // every authenticated socket (a user may have several tabs); `userConns` maps
+  // userId -> open socket count, so its size is the distinct online-user count.
+  private connections = 0;
+  private readonly userConns = new Map<string, number>();
+
   constructor(
     private readonly jwt: JwtService,
     private readonly cfg: AppConfigService,
+    @Inject(forwardRef(() => ProjectsService))
     private readonly projects: ProjectsService,
+    private readonly metrics: MetricsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   afterInit() {
@@ -72,13 +83,36 @@ export class RealtimeGateway
       // Join a personal room so the backend can push user-scoped events
       // (e.g. "projects-changed" when assignment makes a new project visible).
       await client.join(userRoom(payload.sub));
+      this.trackConnect(payload.sub);
     } catch {
       client.disconnect();
     }
   }
 
-  handleDisconnect(_client: AuthedSocket) {
-    // Rooms are cleaned up automatically by socket.io.
+  handleDisconnect(client: AuthedSocket) {
+    // Rooms are cleaned up automatically by socket.io; we only adjust counters.
+    if (client.data.userId) this.trackDisconnect(client.data.userId);
+  }
+
+  private trackConnect(userId: string) {
+    this.connections += 1;
+    this.userConns.set(userId, (this.userConns.get(userId) ?? 0) + 1);
+    this.publishStats();
+  }
+
+  private trackDisconnect(userId: string) {
+    this.connections = Math.max(0, this.connections - 1);
+    const remaining = (this.userConns.get(userId) ?? 0) - 1;
+    if (remaining <= 0) this.userConns.delete(userId);
+    else this.userConns.set(userId, remaining);
+    this.publishStats();
+  }
+
+  private publishStats() {
+    this.metrics.setRealtime({
+      connections: this.connections,
+      onlineUsers: this.userConns.size,
+    });
   }
 
   @SubscribeMessage('subscribe-project')
@@ -108,6 +142,45 @@ export class RealtimeGateway
     await client.leave(roomFor(projectId));
   }
 
+  @SubscribeMessage('subscribe-docspace')
+  async subscribeDocSpace(
+    @ConnectedSocket() client: AuthedSocket,
+    @MessageBody() spaceId: string,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const userId = client.data.userId;
+    if (!userId) return { ok: false, reason: 'unauthorized' };
+    if (await this.canAccessDocSpace(spaceId, userId)) {
+      await client.join(docRoom(spaceId));
+      return { ok: true };
+    }
+    return { ok: false, reason: 'forbidden' };
+  }
+
+  @SubscribeMessage('unsubscribe-docspace')
+  async unsubscribeDocSpace(
+    @ConnectedSocket() client: AuthedSocket,
+    @MessageBody() spaceId: string,
+  ): Promise<void> {
+    await client.leave(docRoom(spaceId));
+  }
+
+  // Lightweight access check (owner OR member) done here via Prisma rather than
+  // DocsService, to avoid a Realtime <-> Docs module cycle.
+  private async canAccessDocSpace(spaceId: string, userId: string): Promise<boolean> {
+    const space = await this.prisma.docSpace
+      .findUnique({ where: { id: spaceId }, select: { ownerId: true } })
+      .catch(() => null);
+    if (!space) return false;
+    if (space.ownerId === userId) return true;
+    const member = await this.prisma.docSpaceMember
+      .findUnique({
+        where: { spaceId_userId: { spaceId, userId } },
+        select: { userId: true },
+      })
+      .catch(() => null);
+    return !!member;
+  }
+
   // ---- broadcast helpers ----
 
   emitTaskUpserted(projectId: string, task: unknown) {
@@ -124,10 +197,33 @@ export class RealtimeGateway
       .emit('comment-added', { taskId, comment });
   }
 
+  emitCommentUpdated(projectId: string, taskId: string, comment: unknown) {
+    this.server
+      .to(roomFor(projectId))
+      .emit('comment-updated', { taskId, comment });
+  }
+
   emitCommentDeleted(projectId: string, taskId: string, commentId: string) {
     this.server
       .to(roomFor(projectId))
       .emit('comment-deleted', { taskId, commentId });
+  }
+
+  emitAttachmentAdded(projectId: string, taskId: string, attachment: unknown) {
+    this.server
+      .to(roomFor(projectId))
+      .emit('attachment-added', { taskId, attachment });
+  }
+
+  emitAttachmentRemoved(projectId: string, taskId: string, attachmentId: string) {
+    this.server
+      .to(roomFor(projectId))
+      .emit('attachment-removed', { taskId, attachmentId });
+  }
+
+  /** Push an in-app notification (e.g. a comment mention) to one user. */
+  emitNotification(userId: string, notification: unknown) {
+    this.server.to(userRoom(userId)).emit('notification', notification);
   }
 
   /**
@@ -141,6 +237,25 @@ export class RealtimeGateway
       this.server.to(userRoom(uid)).emit('projects-changed');
     }
   }
+
+  // ---- docs ----
+
+  /** Page tree changed (page added/renamed/moved/deleted) in a doc space. */
+  emitDocTreeChanged(spaceId: string) {
+    this.server.to(docRoom(spaceId)).emit('doc-tree-changed', { spaceId });
+  }
+
+  /** A page's content was saved — anyone viewing it should reload. */
+  emitDocPageUpdated(spaceId: string, pageId: string) {
+    this.server.to(docRoom(spaceId)).emit('doc-page-updated', { spaceId, pageId });
+  }
+
+  /** A user's set of visible doc spaces changed (created / invited / removed). */
+  emitDocSpacesChangedForUsers(userIds: string[]) {
+    for (const uid of [...new Set(userIds)]) {
+      this.server.to(userRoom(uid)).emit('docspaces-changed');
+    }
+  }
 }
 
 function roomFor(projectId: string): string {
@@ -149,4 +264,8 @@ function roomFor(projectId: string): string {
 
 function userRoom(userId: string): string {
   return `user:${userId}`;
+}
+
+function docRoom(spaceId: string): string {
+  return `docspace:${spaceId}`;
 }

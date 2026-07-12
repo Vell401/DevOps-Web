@@ -13,8 +13,9 @@ import type {
   TaskStatus,
   UserLite,
 } from '../types';
+import { apiError } from '../lib/apiError';
 import { Topbar } from '../components/Topbar';
-import { Board } from '../components/board/Board';
+import { Board, byBoardOrder } from '../components/board/Board';
 import { TaskListView } from '../components/board/TaskListView';
 import { ActivityDashboard } from '../components/board/ActivityDashboard';
 import { Filters, type FilterState } from '../components/board/Filters';
@@ -27,6 +28,7 @@ import { useToast } from '../ui/Toast';
 import { Popover, PopoverItem } from '../ui/Popover';
 import { timeAgo } from '../lib/format';
 import { useProjectRealtime, useUserRealtime } from '../lib/realtime';
+import { roleAtLeast } from '../lib/roles';
 import { useAuth } from '../auth/AuthContext';
 import { cn } from '../lib/cn';
 import type { LayoutContext } from '../components/Layout';
@@ -44,6 +46,8 @@ export function ProjectDetailPage() {
   const [activityVersion, setActivityVersion] = useState(0);
   // Bumped on any realtime comment event so the open TaskDrawer can refetch.
   const [liveCommentsKey, setLiveCommentsKey] = useState(0);
+  // Same idea for attachment add/remove events.
+  const [liveAttachmentsKey, setLiveAttachmentsKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [closeBusy, setCloseBusy] = useState(false);
   const [view, setView] = useState<View>('board');
@@ -80,13 +84,13 @@ export function ProjectDetailPage() {
 
   const reloadTasks = useCallback(async () => {
     if (!id) return;
-    const { data } = await tasksApi.list(id, {
+    const list = await tasksApi.list(id, {
       q: filters.q || undefined,
       assigneeId: filters.assigneeId,
       labelIds: filters.labelIds.length ? filters.labelIds : undefined,
       priority: filters.priority,
     });
-    setTasks(data);
+    setTasks(list);
   }, [id, filters]);
 
   const bumpActivity = useCallback(() => setActivityVersion((v) => v + 1), []);
@@ -107,25 +111,71 @@ export function ProjectDetailPage() {
     void reloadTasks();
   }, [reloadTasks]);
 
-  const onMove = async (taskIdToMove: string, status: TaskStatus) => {
-    const before = tasks.find((t) => t.id === taskIdToMove);
-    if (!before || before.status === status) return;
+  const onMove = async (
+    taskIdToMove: string,
+    status: TaskStatus,
+    targetIndex: number,
+  ) => {
+    const moved = tasks.find((t) => t.id === taskIdToMove);
+    if (!moved) return;
+
+    // The target column's cards in display order, without the moved one.
+    const column = tasks
+      .filter((t) => !t.parentId && t.status === status && t.id !== taskIdToMove)
+      .sort(byBoardOrder);
+    const at = Math.max(0, Math.min(targetIndex, column.length));
+    const prevCard = column[at - 1];
+    const nextCard = column[at];
+
+    // Midpoint between neighbours keeps reorders to a single PATCH. Fresh
+    // boards have every position at 0 (a tie) — then the whole column is
+    // renumbered 1..N once, and later drops use midpoints again.
+    let position: number;
+    let renumber: { id: string; position: number }[] = [];
+    if (!prevCard && !nextCard) position = moved.position;
+    else if (!prevCard) position = nextCard.position - 1;
+    else if (!nextCard) position = prevCard.position + 1;
+    else if (prevCard.position < nextCard.position) {
+      position = (prevCard.position + nextCard.position) / 2;
+    } else {
+      const desired = [...column.slice(0, at), moved, ...column.slice(at)];
+      renumber = desired
+        .map((t, i) => ({ id: t.id, position: i + 1 }))
+        .filter((r) => {
+          const current = r.id === taskIdToMove ? moved.position : column.find((c) => c.id === r.id)?.position;
+          return current !== r.position;
+        });
+      position = at + 1;
+    }
+
+    if (moved.status === status && moved.position === position && !renumber.length) {
+      return;
+    }
+
+    const snapshot = tasks;
     setTasks((prev) =>
-      prev.map((t) => (t.id === taskIdToMove ? { ...t, status } : t)),
+      prev.map((t) => {
+        if (t.id === taskIdToMove) return { ...t, status, position };
+        const r = renumber.find((x) => x.id === t.id);
+        return r ? { ...t, position: r.position } : t;
+      }),
     );
     try {
-      await tasksApi.update(taskIdToMove, { status });
+      await Promise.all(
+        renumber
+          .filter((r) => r.id !== taskIdToMove)
+          .map((r) => tasksApi.update(r.id, { position: r.position })),
+      );
+      await tasksApi.update(taskIdToMove, { status, position });
       bumpActivity();
       // The status change may have triggered auto-close (or auto-reopen). The
       // socket projects-changed event will arrive too, but we re-fetch project
       // core directly so the local user sees the banner update without lag.
       void reloadCore();
       reloadProjects();
-    } catch {
-      toast.push('Could not move task', 'error');
-      setTasks((prev) =>
-        prev.map((t) => (t.id === taskIdToMove ? { ...t, status: before.status } : t)),
-      );
+    } catch (err) {
+      toast.push(apiError(err, 'Could not move task'), 'error');
+      setTasks(snapshot);
     }
   };
 
@@ -165,7 +215,10 @@ export function ProjectDetailPage() {
   const unfinishedCount = tasks.filter((t) => t.status !== 'DONE' && !t.parentId).length;
   const canClose = unfinishedCount === 0 && tasks.length > 0;
   const isClosed = !!project?.closedAt;
-  const isOwner = !!project && project.ownerId === user?.id;
+  const myRole =
+    project?.myRole ?? (project && project.ownerId === user?.id ? 'OWNER' : 'VIEWER');
+  const isProjectAdmin = roleAtLeast(myRole, 'ADMIN');
+  const isEditor = roleAtLeast(myRole, 'EDITOR');
 
   // Realtime: merge incoming task changes from other clients into local state
   // and bump activity so the dashboard refreshes. Also re-fetch project core
@@ -191,9 +244,18 @@ export function ProjectDetailPage() {
       bumpActivity();
       setLiveCommentsKey((k) => k + 1);
     },
+    'comment-updated': () => {
+      setLiveCommentsKey((k) => k + 1);
+    },
     'comment-deleted': () => {
       bumpActivity();
       setLiveCommentsKey((k) => k + 1);
+    },
+    'attachment-added': () => {
+      setLiveAttachmentsKey((k) => k + 1);
+    },
+    'attachment-removed': () => {
+      setLiveAttachmentsKey((k) => k + 1);
     },
   });
 
@@ -250,12 +312,19 @@ export function ProjectDetailPage() {
         }}
         right={
           <>
-            {!isClosed && isOwner && (
+            {!isClosed && isEditor && (
               <button onClick={() => setNewTaskFor('TODO')} className="btn-primary">
                 <Icon.Plus size={14} /> New task
               </button>
             )}
-            {isOwner && (
+            <button
+              onClick={() => setMembersOpen(true)}
+              className="btn-secondary h-8"
+              title="Project members"
+            >
+              <Icon.User size={14} /> Members
+            </button>
+            {isProjectAdmin && (
               <Popover
                 align="end"
                 trigger={({ toggle }) => (
@@ -270,16 +339,6 @@ export function ProjectDetailPage() {
               >
                 {(close) => (
                   <>
-                    <PopoverItem
-                      icon={<Icon.User size={13} />}
-                      onClick={() => {
-                        close();
-                        setMembersOpen(true);
-                      }}
-                    >
-                      Manage members
-                    </PopoverItem>
-                    <hr className="my-1 border-line" />
                     {isClosed ? (
                       <PopoverItem
                         icon={<Icon.ArrowLeft size={13} />}
@@ -324,10 +383,12 @@ export function ProjectDetailPage() {
           <span className="flex-1 text-ink">
             This project was closed {project.closedAt ? timeAgo(project.closedAt) : ''}.
             <span className="ml-1 text-ink-muted">
-              {isOwner ? 'Reopen to make changes.' : 'Only the owner can reopen.'}
+              {isProjectAdmin
+                ? 'Reopen to make changes.'
+                : 'Ask a project admin to reopen.'}
             </span>
           </span>
-          {isOwner && (
+          {isProjectAdmin && (
             <button
               onClick={() => void onReopenProject()}
               className="btn-ghost h-7 px-2 text-xs"
@@ -380,6 +441,7 @@ export function ProjectDetailPage() {
           <Board
             tasks={filteredTasks}
             projectKey={project.key}
+            canMove={isEditor && !isClosed}
             onOpen={(t) => setTaskId(t)}
             onMove={onMove}
             onQuickAdd={(s) => setNewTaskFor(s)}
@@ -408,10 +470,14 @@ export function ProjectDetailPage() {
         projectKey={project.key}
         users={users}
         labels={labels}
-        canEdit={isOwner && !isClosed}
+        canEdit={isEditor && !isClosed}
+        canDelete={isProjectAdmin && !isClosed}
         currentUserId={user?.id}
-        canModerateComments={isOwner && !isClosed}
+        canModerateComments={isProjectAdmin && !isClosed}
+        projectOpen={!isClosed}
         liveCommentsKey={liveCommentsKey}
+        canUpload={isEditor && !isClosed}
+        liveAttachmentsKey={liveAttachmentsKey}
         onClose={() => setTaskId(null)}
         onChanged={() => {
           void reloadTasks();
@@ -438,7 +504,11 @@ export function ProjectDetailPage() {
         onClose={() => setMembersOpen(false)}
         projectId={project.id}
         ownerId={project.ownerId}
-        onChanged={reloadProjects}
+        canManage={isProjectAdmin && !isClosed}
+        onChanged={() => {
+          reloadProjects();
+          void reloadCore();
+        }}
       />
     </>
   );

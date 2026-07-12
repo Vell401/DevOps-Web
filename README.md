@@ -9,6 +9,7 @@ GitHub Actions runner.
 Связанные документы:
 - [RUNNING-WINDOWS.md](./RUNNING-WINDOWS.md) — локальный запуск на Windows + Docker.
 - [RUNNING-VM.md](./RUNNING-VM.md) — развёртывание на Linux-сервере и настройка CI/CD.
+- [BACKUPS.md](./BACKUPS.md) — резервное копирование (restic): установка, восстановление, эксплуатация.
 - [CLAUDE.md](./CLAUDE.md) — справочник для AI-агентов, работающих с репозиторием.
 
 ---
@@ -20,41 +21,49 @@ GitHub Actions runner.
 | Backend | NestJS 10 (TypeScript) + Prisma 5 |
 | База данных | PostgreSQL 16 |
 | Realtime | Socket.IO (NestJS WebSocket Gateway) |
+| Object storage | MinIO (S3-совместимое) — вложения к задачам |
 | Frontend | React 18 + Vite + TypeScript + TailwindCSS |
 | Auth | JWT (access + ротация refresh), bcrypt |
-| Rate limiting | `@nestjs/throttler` (in-memory store) |
+| Rate limiting | `@nestjs/throttler` + Redis-хранилище (fallback: in-memory) |
 | Тесты | Jest (backend), Vitest (frontend) |
 | Reverse proxy (prod) | nginx (`deploy/edge.conf`) |
 | CI / CD | GitHub Actions → Docker Hub → self-hosted runner |
 
-Контейнер Redis 7 присутствует в Compose и его параметры читаются конфигурацией
-бэкенда (`REDIS_HOST`, `REDIS_PORT`), однако в текущей версии кода приложение к
-Redis не обращается: rate limiting использует встроенное in-memory хранилище
-`@nestjs/throttler`. Контейнер оставлен как задел под будущее распределённое
-хранилище лимитов или кэш.
+Redis 7 используется бэкендом для трёх вещей: распределённые счётчики rate
+limiting (`@nest-lab/throttler-storage-redis`), Socket.IO Redis-адаптер
+(broadcast-события доходят до клиентов любой реплики бэкенда) и общий кэш
+производных метрик админ-панели. Redis опционален: если `REDIS_HOST` не задан
+(локальный `npm run start:dev` без Docker, unit-тесты), приложение прозрачно
+откатывается на in-process-хранилища.
 
 ---
 
 ## 2. Архитектура
 
 - **Backend** — модульное NestJS-приложение. Модули: `auth` (JWT access +
-  ротация refresh, bcrypt), `users`, `projects`, `tasks`, `comments`, `labels`,
-  `activity`, `admin`, `realtime` (WebSocket-шлюз), `health`, `config`.
+  ротация refresh, bcrypt), `users`, `projects`, `tasks`, `comments` (включая
+  @-упоминания), `labels`, `activity`, `notifications` (инбокс упоминаний,
+  прочитано/не прочитано), `admin`, `realtime` (WebSocket-шлюз), `storage` +
+  `attachments` (загрузка файлов в S3/MinIO), `health`, `config`.
   Действует глобальный `ValidationPipe` (`whitelist` + `forbidNonWhitelisted` +
   `transform`), `helmet`, rate limiting (`@nestjs/throttler`) и структурированные
   JSON-логи (`nestjs-pino`) с redact'ом заголовков `Authorization` и `Cookie`.
   За обратным прокси выставлен `trust proxy`, чтобы счётчик лимитов работал по
   реальному IP клиента, а не по адресу edge-прокси.
 - **Frontend** — SPA на React: аутентификация, список проектов, детальная
-  страница проекта (Kanban-доска, комментарии, активность, подзадачи, лейблы,
-  множественные исполнители), управление участниками проекта, закрытые проекты,
-  дашборд активности с глобальным inbox, административная панель. Axios-клиент с
-  interceptor'ом, автоматически обновляющим access-токен по ответу 401.
-  Обновления в реальном времени поступают по Socket.IO (`/api/socket.io`).
+  страница проекта (Kanban-доска с drag-and-drop переупорядочиванием,
+  комментарии с @-упоминаниями/редактированием/вложениями, активность,
+  подзадачи, лейблы, множественные исполнители), управление участниками и ролями,
+  страница «Мои задачи» (по всем проектам, дедлайн первым), инбокс уведомлений
+  (упоминания/назначения/статусы/дедлайны, прочитано/не прочитано), фото профиля,
+  закрытые проекты, дашборд активности с глобальным inbox, админ-панель
+  (overview + per-service метрики). Axios-клиент с interceptor'ом, автоматически
+  обновляющим access-токен по ответу 401. Обновления в реальном времени
+  поступают по Socket.IO (`/api/socket.io`).
 - **БД** — Prisma как source of truth (`backend/prisma/schema.prisma`). Сущности:
-  `User`, `Project`, `Task`, `Label`, `Comment`, `Activity`, `RefreshToken`, а
-  также связующие таблицы many-to-many (исполнители задач, участники проектов,
-  лейблы задач).
+  `User`, `Project`, `ProjectMember` (роль участника), `Task`, `Label`,
+  `Comment`, `Activity`, `Attachment`, `Notification`, `RefreshToken`, а также
+  связующие таблицы many-to-many (исполнители задач, лейблы задач).
 - **Прод** — образы собираются в CI и публикуются в Docker Hub; на сервере их
   разворачивает `docker-compose.prod.yml` за edge-nginx (`deploy/edge.conf`),
   который дополнительно проксирует WebSocket-соединения.
@@ -63,14 +72,20 @@ Redis не обращается: rate limiting использует встрое
 
 - **Администратор** (`User.isAdmin`) — доступ к панели `/admin` и управлению
   пользователями.
-- **Владелец проекта** (`Project.ownerId`) — полный контроль над проектом:
-  переименование, закрытие/переоткрытие, управление участниками и лейблами,
-  любые операции с задачами.
-- **Участник** — явно добавленный участник проекта либо исполнитель хотя бы
-  одной задачи. Видит проект, меняет статус задач, комментирует.
+- **Владелец проекта** (`Project.ownerId`) — всё, что может ADMIN, плюс
+  удаление проекта. Владелец не является строкой участника.
+- **Роли участников** (`ProjectMember.role`):
+  - `VIEWER` — читает проект и комментирует (включая @-упоминания), но не
+    меняет задачи и не загружает файлы;
+  - `EDITOR` — роль по умолчанию: создаёт и редактирует задачи (все поля),
+    управляет лейблами, загружает файлы;
+  - `ADMIN` — дополнительно управляет участниками и ролями, переименовывает,
+    закрывает/переоткрывает проект, удаляет задачи и модерирует комментарии.
+- Назначение исполнителем не-участника **автоматически добавляет** его в
+  проект с ролью `EDITOR`.
 
 Закрытый проект (`Project.closedAt`) доступен только для чтения: любые изменения
-отклоняются до его переоткрытия владельцем.
+отклоняются до его переоткрытия владельцем или ADMIN'ом.
 
 ### Структура репозитория
 
@@ -78,7 +93,8 @@ Redis не обращается: rate limiting использует встрое
 backend/                 NestJS API
   prisma/                схема, миграции, seed
   src/                   модули: auth, users, projects, tasks, comments,
-                         labels, activity, admin, realtime, health, config
+                         labels, activity, notifications, admin, realtime,
+                         storage, attachments, health, config
   test/                  e2e-тесты
   Dockerfile             multi-stage, non-root, с HEALTHCHECK
 frontend/                React SPA
@@ -175,23 +191,40 @@ npx prisma migrate dev --name <короткое-описание>
 | GET | `/users` | Список пользователей (для assignee-picker) | Bearer |
 | GET | `/projects` | Доступные проекты + stats (поддерживает `?closed=true`) | Bearer |
 | POST | `/projects` | Создать проект | Bearer |
-| GET, PATCH, DELETE | `/projects/:id` | Получить / изменить / удалить проект | Bearer |
-| POST | `/projects/:id/close`, `/projects/:id/reopen` | Закрыть / переоткрыть проект | Bearer (владелец) |
-| GET, POST | `/projects/:id/members` | Участники проекта: список / добавить | Bearer |
-| DELETE | `/projects/:id/members/:memberId` | Удалить участника | Bearer (владелец) |
-| GET | `/projects/:projectId/activity` | Лента активности проекта | Bearer |
-| GET | `/projects/:projectId/activity/stats` | Агрегаты для дашборда | Bearer |
-| GET, POST | `/projects/:projectId/tasks` | Список / создать задачу | Bearer |
-| GET, PATCH, DELETE | `/tasks/:id` | Получить / изменить / удалить задачу | Bearer |
-| GET | `/tasks/:id/activity` | История изменений задачи | Bearer |
-| GET, POST | `/tasks/:taskId/comments` | Список / добавить комментарий | Bearer |
-| DELETE | `/comments/:id` | Удалить комментарий (автор или владелец проекта) | Bearer |
-| GET, POST | `/projects/:projectId/labels` | Лейблы проекта: список / создать | Bearer |
-| PATCH, DELETE | `/labels/:id` | Изменить / удалить лейбл | Bearer (владелец) |
-| GET | `/activity` | Глобальная лента активности (inbox) | Bearer |
+| GET | `/projects/:id` | Получить проект (+ роль вызывающего `myRole`) | Bearer (участник) |
+| PATCH | `/projects/:id` | Переименовать / изменить описание | Bearer (ADMIN+) |
+| DELETE | `/projects/:id` | Удалить проект | Bearer (владелец) |
+| POST | `/projects/:id/close`, `/projects/:id/reopen` | Закрыть / переоткрыть проект | Bearer (ADMIN+) |
+| GET, POST | `/projects/:id/members` | Участники: список / добавить (по умолчанию EDITOR) | Bearer (POST — ADMIN+) |
+| PATCH | `/projects/:id/members/:memberId` | Сменить роль участника | Bearer (ADMIN+) |
+| DELETE | `/projects/:id/members/:memberId` | Удалить участника | Bearer (ADMIN+) |
+| GET | `/projects/:projectId/activity` | Лента активности проекта (пагинация) | Bearer (участник) |
+| GET | `/projects/:projectId/activity/stats` | Агрегаты для дашборда | Bearer (участник) |
+| GET, POST | `/projects/:projectId/tasks` | Список (пагинация) / создать задачу | Bearer (POST — EDITOR+) |
+| GET | `/tasks/mine` | Мои открытые задачи по всем проектам (дедлайн первым) | Bearer |
+| GET | `/tasks/:id` | Получить задачу | Bearer (участник) |
+| PATCH | `/tasks/:id` | Изменить задачу (статус/поля) | Bearer (EDITOR+) |
+| DELETE | `/tasks/:id` | Удалить задачу | Bearer (ADMIN+) |
+| GET | `/tasks/:id/activity` | История изменений задачи | Bearer (участник) |
+| GET, POST | `/tasks/:taskId/comments` | Список / добавить комментарий (@-упоминания, вложения) | Bearer (участник) |
+| PATCH | `/comments/:id` | Редактировать комментарий | Bearer (только автор) |
+| DELETE | `/comments/:id` | Удалить комментарий | Bearer (автор или ADMIN+) |
+| GET, POST | `/tasks/:taskId/attachments` | Вложения задачи: список / загрузить (multipart) | Bearer (POST — EDITOR+) |
+| GET | `/attachments/:id` | Получить/скачать файл вложения | Bearer (участник) |
+| DELETE | `/attachments/:id` | Удалить вложение | Bearer (загрузивший или ADMIN+) |
+| GET, POST | `/projects/:projectId/labels` | Лейблы проекта: список / создать | Bearer (POST — EDITOR+) |
+| PATCH, DELETE | `/labels/:id` | Изменить / удалить лейбл | Bearer (EDITOR+) |
+| GET | `/activity` | Глобальная лента активности (inbox, пагинация) | Bearer |
+| POST, DELETE | `/users/me/avatar` | Загрузить / удалить фото профиля | Bearer |
+| GET | `/users/:id/avatar` | Фото профиля пользователя | Bearer |
+| GET | `/notifications` | Уведомления (упоминания, назначения, статусы, дедлайны) | Bearer |
+| GET | `/notifications/unread-count` | Число непрочитанных уведомлений | Bearer |
+| POST | `/notifications/read`, `/notifications/read-all` | Отметить прочитанными | Bearer |
 | GET | `/admin/stats` | Статистика для админ-дашборда | Bearer + Admin |
+| GET | `/admin/metrics` | Per-service метрики (Postgres/Redis/S3/backend) | Bearer + Admin |
 | GET | `/admin/users` | Расширенный список пользователей | Bearer + Admin |
-| PATCH | `/admin/users/:id` | Изменить name / isAdmin / пароль | Bearer + Admin |
+| GET | `/admin/users/:id/logins` | История входов пользователя | Bearer + Admin |
+| PATCH | `/admin/users/:id` | Изменить name / isAdmin / blocked / пароль | Bearer + Admin |
 | DELETE | `/admin/users/:id` | Удалить пользователя | Bearer + Admin |
 | GET | `/health/live` | Жив ли процесс | — |
 | GET | `/health/ready` | Готовность (пинг БД) | — |
@@ -211,12 +244,17 @@ npx prisma migrate dev --name <короткое-описание>
 |---|---|---|---|
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | compose | tracker | Инициализация Postgres |
 | `DATABASE_URL` | backend | (из значений выше) | Строка подключения Prisma |
-| `REDIS_HOST` / `REDIS_PORT` | backend | redis / 6379 | Параметры Redis (контейнер предусмотрен, приложением пока не используется) |
+| `DB_CONNECTION_LIMIT` | compose | 10 | Размер пула соединений Prisma (дописывается в `DATABASE_URL`). Prisma по умолчанию = cpu*2+1 (~5 на 2 ядрах, виден на графике admin «Server sessions»); поднять до ~10–15 на нагруженной VM |
+| `REDIS_HOST` / `REDIS_PORT` | backend | redis / 6379 | Параметры Redis (rate limiting, Socket.IO адаптер, кэш метрик). Если `REDIS_HOST` не задан — fallback на in-process-хранилища |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | backend | **обязательно сменить в prod** | Ключи подписи JWT |
 | `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | backend | 15m / 7d | Время жизни токенов |
 | `THROTTLE_TTL` / `THROTTLE_LIMIT` | backend | 60 / 120 | Окно (сек) и квота rate-limit |
+| `THROTTLE_AUTH_TTL` / `THROTTLE_AUTH_LIMIT` | backend | 60 / 10 | Отдельный, более строгий лимит для auth-роутов (login/register/refresh), на IP. Поднимать только для нагрузочного теста, затем вернуть |
 | `CORS_ORIGINS` | backend | http://localhost:5173 | Разрешённые origins (через запятую) |
 | `LOG_LEVEL` | backend | info | Уровень логирования Pino |
+| `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` | backend | minio / us-east-1 / tracker-attachments | Параметры объектного хранилища (MinIO в Docker) |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | backend / minio | minioadmin (dev) | Ключи S3; в prod из секретов, ими же инициализируется MinIO |
+| `MAX_UPLOAD_BYTES` | backend | 26214400 (25 МБ) | Максимальный размер загружаемого файла |
 | `SEED_ADMIN_PASSWORD` / `SEED_TEST_PASSWORD` | seed | — (обязательны) | Пароли seeded-учёток; без них seed завершается с ошибкой |
 | `VITE_API_URL` | frontend build arg | http://localhost:3000/api | Зашивается в бандл при сборке. Для прод-образа задаётся как GitHub repo variable и подставляется build-job'ом workflow |
 | `DOCKERHUB_USERNAME` | prod compose | — | Namespace образов в Docker Hub (совпадает с одноимённым secret) |
@@ -259,8 +297,10 @@ push в main     → prod-cd.yml (test → build → deploy на self-hosted run
 self-hosted runner'е, размещённом на целевом сервере. Такое разделение
 обусловлено публичностью репозитория: на runner попадает только шаг деплоя
 (`docker pull` + `docker compose up`), что минимизирует поверхность атаки. Образы
-публикуются в Docker Hub с тегами `sha-<short>` (неизменяемый), `dev`/`prod`
-(подвижный указатель среды) и `latest`.
+публикуются в Docker Hub с тегами `sha-<short>` (неизменяемый) и `dev`/`prod`
+(подвижный указатель среды); тег `latest` сознательно не публикуется. После
+сборки каждый образ проходит Trivy-скан: исправимые CRITICAL-уязвимости
+блокируют пайплайн.
 
 Каждый пайплайн поддерживает ручной запуск (`workflow_dispatch`) с параметром
 `image_tag` — для отката на ранее собранный образ без пересборки.
@@ -277,6 +317,8 @@ self-hosted runner'е, размещённом на целевом сервере
 | `CORS_ORIGINS` | список разрешённых origins через запятую |
 | `SEED_ADMIN_PASSWORD` | пароль seeded-админа |
 | `SEED_TEST_PASSWORD` | пароль seeded-тестового пользователя |
+| `S3_ACCESS_KEY` | ключ доступа MinIO/S3 (и root-пользователь MinIO) |
+| `S3_SECRET_KEY` | секретный ключ MinIO/S3 (и root-пароль MinIO) |
 
 ### GitHub Variables (опционально)
 
@@ -306,14 +348,25 @@ Traefik или Let's Encrypt + certbot.
 
 ## 8. Observability
 
-Стенд намеренно минимален — стек наблюдаемости подключается под конкретную среду.
+Стенд намеренно минимален — внешний стек наблюдаемости подключается под
+конкретную среду.
 
 - **Логи:** Pino → stdout (JSON); `redact` удаляет заголовки `Authorization` и
   `Cookie`. Сбор — Loki / ELK / Vector на выбор.
 - **Health-пробы:** `/api/health/live` (процесс жив) и `/api/health/ready`
   (БД доступна) — подключаются в мониторинг аптайма.
-- **Метрики:** пока не экспонируются — может быть добавлен
-  `@willsoto/nestjs-prometheus` с эндпоинтом `/metrics` за внутренним ACL.
+- **Встроенный дашборд метрик:** `/admin/metrics` (только для админов) —
+  per-service карточки со статусом, аптаймом и размерами: backend (RSS/heap,
+  Node, аптайм), PostgreSQL (размер БД на диске, подключения, версия), Redis
+  (память, ключи, клиенты), объектное хранилище S3 (объём вложений, файлы), а
+  также HTTP-метрики, медленные запросы и срабатывания rate-limit. Данные
+  собираются самим приложением и кэшируются (общий кэш через Redis); Docker-сокет
+  не используется.
+- **Статус бэкапов:** на том же `/admin/metrics` — карточка restic (последний
+  прогон, успешные бэкапы за 3 дня, глубина хранения, `check`), читается из
+  `status.json`, который пишет хостовый бэкап-джоб (см. [BACKUPS.md](./BACKUPS.md)).
+- **Prometheus `/metrics`:** наружу пока не экспонируется — при необходимости
+  добавляется `@willsoto/nestjs-prometheus` за внутренним ACL.
 - **Tracing:** при необходимости — OpenTelemetry SDK в `main.ts` с
   OTLP-экспортом.
 
