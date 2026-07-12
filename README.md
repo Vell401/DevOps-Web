@@ -1,16 +1,40 @@
 # Task Tracker — техническое описание
 
-Небольшое REST + SPA приложение «таск-трекер» (mini-Jira), реализованное как
-учебно-практический стенд для DevOps: мультисервисный Docker Compose, миграции
-Prisma, JWT-аутентификация, health-пробы, структурированные логи, публикация
-образов в Docker Hub и автоматический деплой на Linux-сервер через self-hosted
+REST + SPA приложение «таск-трекер» (Jira): мультисервисный Docker Compose, миграции
+Prisma, JWT-аутентификация, health-пробы, структурированные логи, CI-CD сборка - тесты - публикация
+образов в Docker Hub - автоматический деплой на Linux-сервер через self-hosted
 GitHub Actions runner.
+
+
+## Превью:
+### Projects:
+
+<p align="center">
+  <img src="docs/screenshots/all_projects.png" width="100%" alt="Дашборд">
+</p>
+<p align="center">
+  <img src="docs/screenshots/tasks.png" width="100%" alt="Дашборд">
+</p>
+
+### Wiki:
+
+<p align="center">
+  <img src="docs/screenshots/docs1.png" width="49%" alt="Вики — дерево страниц">
+  <img src="docs/screenshots/docs2.png" width="49%" alt="Вики — редактор страницы">
+</p>
+
+### Admin:
+
+<p align="center">
+  <img src="docs/screenshots/admin_panel_1.png" width="49%" alt="Админка — пользователи">
+  <img src="docs/screenshots/admin_panel_2.png" width="49%" alt="Админка — метрики">
+</p>
 
 Связанные документы:
 - [RUNNING-WINDOWS.md](./RUNNING-WINDOWS.md) — локальный запуск на Windows + Docker.
 - [RUNNING-VM.md](./RUNNING-VM.md) — развёртывание на Linux-сервере и настройка CI/CD.
 - [BACKUPS.md](./BACKUPS.md) — резервное копирование (restic): установка, восстановление, эксплуатация.
-- [CLAUDE.md](./CLAUDE.md) — справочник для AI-агентов, работающих с репозиторием.
+- [CLAUDE.md](./CLAUDE.md) — справочник для AI-агентов.
 
 ---
 
