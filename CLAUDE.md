@@ -13,9 +13,10 @@ non-obvious traps that the type-checker and tests won't catch for you.
 
 Task Tracker — a small REST + SPA "mini-Jira" used as a DevOps practice ground:
 multi-service Docker Compose, Prisma migrations, JWT auth, realtime over
-Socket.IO, in-app notifications, per-project roles, an admin metrics dashboard,
-health probes, structured logs, Docker Hub releases and an automated deploy to a
-Linux server via a self-hosted GitHub Actions runner.
+Socket.IO, in-app notifications, per-project roles, a separate wiki (Docs)
+with its own space-level roles, an admin metrics dashboard, health probes,
+structured logs, Docker Hub releases and an automated deploy to a Linux server
+via a self-hosted GitHub Actions runner.
 
 ## Stack
 
@@ -42,11 +43,13 @@ Linux server via a self-hosted GitHub Actions runner.
 
 ```
 backend/    NestJS API — src/ modules (auth, users, projects, tasks, comments,
-            labels, activity, notifications, admin, realtime, storage,
+            labels, activity, notifications, docs, admin, realtime, storage,
             attachments, health, config, metrics, redis, prisma) + src/common
-            (pagination helper). prisma/ (schema, migrations, seed,
-            seed-bigdata is NOT present — load tooling lives outside dev).
-            test/ (e2e: health only), Dockerfile
+            (pagination helper). docs/ is a wiki feature (spaces, nested
+            pages, revisions, full-text search) — its own authority axis,
+            unrelated to project roles (see "Docs spaces & roles" below).
+            prisma/ (schema, migrations, seed, seed-bigdata is NOT present —
+            load tooling lives outside dev). test/ (e2e: health only), Dockerfile
 frontend/   React SPA — src/ (pages, components, ui, api client, auth context,
             lib), nginx.conf (serves on :8080, unprivileged), Dockerfile
 deploy/     edge.conf — production reverse-proxy (HTTP + WebSocket upgrade,
@@ -167,6 +170,20 @@ prod they come from GitHub Secrets.
 - **Project closure.** A project auto-closes when all tasks are DONE and is
   read-only until explicitly reopened. Every mutating path calls
   `assertNotClosed`. Don't add a mutation without it.
+
+- **Docs spaces & roles.** The wiki (`backend/src/docs/`) is a second, unrelated
+  authority axis — a `DocSpace` has its own owner and its own `DocSpaceMember`
+  rows (`DocRole`: READER < WRITER), not derived from project membership.
+  `DocsService.roleInSpace` / `assertSpaceRole` are the docs-side equivalents of
+  `ProjectsService.roleIn` / `assertRole` — route new permission checks through
+  them, don't compare against `ProjectRole`. A global admin (`User.isAdmin`)
+  gets `WRITER` in every space by default, mirroring the admin oversight already
+  granted on projects. Every `DocPage.content` save writes a `DocPageRevision`
+  snapshot; only the last 50 per page are kept (`pruneRevisions`), so restoring
+  an old revision creates a new one rather than overwriting history. Reparenting
+  a page (`updatePage` with a new `parentId`) is guarded against cycles via
+  `isInSubtree` — **`TasksService.update()` has no equivalent guard for
+  `Task.parentId`**, so don't assume the same protection exists there.
 
 ## Conventions
 
